@@ -3,6 +3,8 @@ Spree::Admin::BaseController.class_eval do
   before_filter :authorize_admin
 
   def authorize_admin
+    p current_ability
+
     begin
       model = model_class
     rescue
