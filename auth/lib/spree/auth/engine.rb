@@ -9,7 +9,9 @@ module Spree
       end
 
       def self.activate
-        Dir.glob(File.join(File.dirname(__FILE__), "../../../app/**/*_decorator*.rb")) do |c|
+        decorators = Dir[File.join(File.dirname(__FILE__), "../../../app/**/*_decorator*.rb")]
+        p decorators.map { |d| File.basename(d) }
+        decorators.each do |c|
           Rails.configuration.cache_classes ? require(c) : load(c)
         end
       end
