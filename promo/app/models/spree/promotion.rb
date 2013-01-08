@@ -71,15 +71,13 @@ module Spree
     end
 
     def order_activatable?(order)
-      order &&
-      created_at.to_i < order.created_at.to_i &&
-      !UNACTIVATABLE_ORDER_STATES.include?(order.state)
+      order && !UNACTIVATABLE_ORDER_STATES.include?(order.state)
     end
 
     # Products assigned to all product rules
     def products
       @products ||= self.rules.all.inject([]) do |products, rule|
-        products << rule.products if rule.respond_to?(:products)
+        rule.respond_to?(:products) ? products << rule.products : products
       end.flatten.uniq
     end
 
