@@ -9,10 +9,6 @@ class FakeCalculator < Spree::Calculator
 end
 
 describe Spree::Order do
-  before(:each) do
-    reset_spree_preferences
-  end
-
   let(:user) { stub_model(Spree::LegacyUser, :email => "spree@example.com") }
   let(:order) { stub_model(Spree::Order, :user => user) }
 
@@ -84,6 +80,16 @@ describe Spree::Order do
 
     it "should be true for order in the 'resumed' state" do
       order.stub(:resumed? => true)
+      order.can_ship?.should be_true
+    end
+
+    it "should be true for an order in the 'awaiting return' state" do
+      order.stub(:awaiting_return? => true)
+      order.can_ship?.should be_true
+    end
+
+    it "should be true for an order in the 'returned' state" do
+      order.stub(:returned? => true)
       order.can_ship?.should be_true
     end
 
@@ -446,8 +452,8 @@ describe Spree::Order do
         line_items.count.should == 2
 
         # No guarantee on ordering of line items, so we do this:
-        line_items.map(&:quantity).should =~ [1, 1]
-        line_items.map(&:variant_id).should =~ [variant.id, variant_2.id]
+        line_items.pluck(:quantity).should =~ [1, 1]
+        line_items.pluck(:variant_id).should =~ [variant.id, variant_2.id]
       end
     end
   end

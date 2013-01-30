@@ -31,7 +31,7 @@ module Spree
     token_resource
 
     attr_accessible :line_items, :bill_address_attributes, :ship_address_attributes, :payments_attributes,
-                    :ship_address, :bill_address, :line_items_attributes, :number,
+                    :ship_address, :bill_address, :payments_attributes, :line_items_attributes, :number,
                     :shipping_method_id, :email, :use_billing, :special_instructions, :currency
 
     if Spree.user_class
@@ -357,11 +357,11 @@ module Spree
     end
 
     def can_ship?
-      self.complete? || self.resumed?
+      self.complete? || self.resumed? || self.awaiting_return? || self.returned?
     end
 
     def credit_cards
-      credit_card_ids = payments.from_credit_card.map(&:source_id).uniq
+      credit_card_ids = payments.from_credit_card.pluck(:source_id).uniq
       CreditCard.scoped(:conditions => { :id => credit_card_ids })
     end
 
