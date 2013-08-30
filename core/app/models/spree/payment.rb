@@ -1,49 +1,69 @@
 module Spree
   class Payment < ActiveRecord::Base
     include Spree::Payment::Processing
-    belongs_to :order
-    belongs_to :source, :polymorphic => true, :validate => true
-    belongs_to :payment_method
 
-    has_many :offsets, :class_name => "Spree::Payment", :foreign_key => :source_id, :conditions => "source_type = 'Spree::Payment' AND amount < 0 AND state = 'completed'"
-    has_many :log_entries, :as => :source
+    IDENTIFIER_CHARS = (('A'..'Z').to_a + ('0'..'9').to_a - %w(0 1 I O)).freeze
 
-    after_save :create_payment_profile, :if => :profiles_supported?
+    belongs_to :order, class_name: 'Spree::Order'
+    belongs_to :source, polymorphic: true
+    belongs_to :payment_method, class_name: 'Spree::PaymentMethod'
+
+    has_many :offsets, -> { where("source_type = 'Spree::Payment' AND amount < 0 AND state = 'completed'") },
+      class_name: "Spree::Payment", foreign_key: :source_id
+    has_many :log_entries, as: :source
+
+    before_validation :validate_source
+    before_save :set_unique_identifier
+
+    after_save :create_payment_profile, if: :profiles_supported?
 
     # update the order totals, etc.
     after_save :update_order
+    # invalidate previously entered payments
+    after_create :invalidate_old_payments
 
     attr_accessor :source_attributes
     after_initialize :build_source
 
-    attr_accessible :amount, :payment_method_id, :source_attributes
+    scope :from_credit_card, -> { where(source_type: 'Spree::CreditCard') }
+    scope :with_state, ->(s) { where(state: s.to_s) }
+    scope :completed, -> { with_state('completed') }
+    scope :pending, -> { with_state('pending') }
+    scope :failed, -> { with_state('failed') }
+    scope :valid, -> { where('state NOT IN (?)', %w(failed invalid)) }
 
-    scope :from_credit_card, lambda { where(:source_type => 'Spree::CreditCard') }
-    scope :with_state, lambda { |s| where(:state => s) }
-    scope :completed, with_state('completed')
-    scope :pending, with_state('pending')
-    scope :failed, with_state('failed')
+    after_rollback :persist_invalid
+
+    def persist_invalid
+      return unless ['failed', 'invalid'].include?(state)
+      state_will_change!
+      save 
+    end
 
     # order state machine (see http://github.com/pluginaweek/state_machine/tree/master for details)
-    state_machine :initial => 'checkout' do
+    state_machine initial: :checkout do
       # With card payments, happens before purchase or authorization happens
       event :started_processing do
-        transition :from => ['checkout', 'pending', 'completed', 'processing'], :to => 'processing'
+        transition from: [:checkout, :pending, :completed, :processing], to: :processing
       end
       # When processing during checkout fails
       event :failure do
-        transition :from => ['pending', 'processing'], :to => 'failed'
+        transition from: [:pending, :processing], to: :failed
       end
       # With card payments this represents authorizing the payment
       event :pend do
-        transition :from => ['checkout', 'processing'], :to => 'pending'
+        transition from: [:checkout, :processing], to: :pending
       end
       # With card payments this represents completing a purchase or capture transaction
       event :complete do
-        transition :from => ['processing', 'pending', 'checkout'], :to => 'completed'
+        transition from: [:processing, :pending, :checkout], to: :completed
       end
       event :void do
-        transition :from => ['pending', 'completed', 'checkout'], :to => 'void'
+        transition from: [:pending, :completed, :checkout], to: :void
+      end
+      # when the card brand isnt supported
+      event :invalidate do
+        transition from: [:checkout], to: :invalid
       end
     end
 
@@ -51,9 +71,10 @@ module Spree
       order.currency
     end
 
-    def display_amount
-      Spree::Money.new(amount, { :currency => currency })
+    def money
+      Spree::Money.new(amount, { currency: currency })
     end
+    alias display_amount money
 
     def offsets_total
       offsets.pluck(:amount).sum
@@ -86,11 +107,15 @@ module Spree
     end
 
     private
-      def amount_is_valid_for_outstanding_balance_or_credit
-        return unless order
-        if amount != order.outstanding_balance
-          errors.add(:amount, "does not match outstanding balance (#{order.outstanding_balance})")
+
+      def validate_source
+        if source && !source.valid?
+          source.errors.each do |field, error|
+            field_name = I18n.t("activerecord.attributes.#{source.class.to_s.underscore}.#{field}")
+            self.errors.add(Spree.t(source.class.to_s.demodulize.underscore), "#{field_name} #{error}")
+          end
         end
+        return !errors.present?
       end
 
       def profiles_supported?
@@ -104,9 +129,30 @@ module Spree
         gateway_error e
       end
 
+      def invalidate_old_payments
+        order.payments.with_state('checkout').where("id != ?", self.id).each do |payment|
+          payment.invalidate!
+        end
+      end
+
       def update_order
         order.payments.reload
         order.update!
+      end
+
+      # Necessary because some payment gateways will refuse payments with
+      # duplicate IDs. We *were* using the Order number, but that's set once and
+      # is unchanging. What we need is a unique identifier on a per-payment basis,
+      # and this is it. Related to #1998.
+      # See https://github.com/spree/spree/issues/1998#issuecomment-12869105
+      def set_unique_identifier
+        begin
+          self.identifier = generate_identifier
+        end while self.class.exists?(identifier: self.identifier)
+      end
+
+      def generate_identifier
+        Array.new(8){ IDENTIFIER_CHARS.sample }.join
       end
   end
 end

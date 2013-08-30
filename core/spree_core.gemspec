@@ -5,41 +5,36 @@ Gem::Specification.new do |s|
   s.platform    = Gem::Platform::RUBY
   s.name        = 'spree_core'
   s.version     = version
-  s.summary     = 'Core e-commerce functionality for the Spree project.'
-  s.description = 'Required dependency for Spree'
+  s.summary     = 'The bare bones necessary for Spree.'
+  s.description = 'The bare bones necessary for Spree.'
 
-  s.required_ruby_version = '>= 1.8.7'
+  s.required_ruby_version = '>= 1.9.3'
   s.author      = 'Sean Schofield'
   s.email       = 'sean@spreecommerce.com'
   s.homepage    = 'http://spreecommerce.com'
   s.license     = %q{BSD-3}
-  s.rubyforge_project = 'spree_core'
 
   s.files        = Dir['LICENSE', 'README.md', 'app/**/*', 'config/**/*', 'lib/**/*', 'db/**/*', 'vendor/**/*']
   s.require_path = 'lib'
-  s.requirements << 'none'
 
-  s.add_dependency 'acts_as_list', '= 0.1.4'
-  s.add_dependency 'awesome_nested_set', '2.1.5'
+  s.add_dependency 'activemerchant', '1.34.0' # temporarily locked down until 1.37.1+ is released
+  s.add_dependency 'acts_as_list', '= 0.2.0'
+  s.add_dependency 'awesome_nested_set', '~> 3.0.0.rc.1'
+  s.add_dependency 'aws-sdk', '1.11.1' # temporarily locked down due to https://github.com/aws/aws-sdk-ruby/issues/273
+  s.add_dependency 'cancan', '~> 1.6.10'
+  s.add_dependency 'deface', '>= 1.0.0.rc3'
+  s.add_dependency 'ffaker', '~> 1.16'
+  s.add_dependency 'highline', '= 1.6.18' # Necessary for the install generator
+  s.add_dependency 'httparty', '~> 0.11' # For checking alerts.
+  s.add_dependency 'json', '>= 1.7.7'
+  s.add_dependency 'kaminari', '~> 0.14.1'
+  s.add_dependency 'money', '5.1.1'
+  s.add_dependency 'paperclip', '~> 3.4.1'
+  s.add_dependency 'paranoia', '~> 2.0'
+  s.add_dependency 'rails', '~> 4.0.0'
+  s.add_dependency 'ransack', '1.0.0'
+  s.add_dependency 'state_machine', '1.2.0'
+  s.add_dependency 'stringex', '~> 1.5.1'
+  s.add_dependency 'truncate_html', '0.9.2'
 
-  # This gem dependency is frozen ON PURPOSE to 2.1.4!!
-  # This is because 2.2.0 uses jQuery 1.9 which breaks the jquery.horizontalNav
-  # plugin that we are using in the admin backend.
-  s.add_dependency 'jquery-rails', '~> 2.1.4'
-  s.add_dependency 'select2-rails', '~> 3.2'
-
-  s.add_dependency 'highline', '= 1.6.11'
-  s.add_dependency 'state_machine', '= 1.1.2'
-  s.add_dependency 'ffaker', '~> 1.12.0'
-  s.add_dependency 'paperclip', '~> 2.8'
-  s.add_dependency 'aws-sdk', '~> 1.3.4'
-  s.add_dependency 'ransack', '~> 0.7.2'
-  s.add_dependency 'activemerchant', '~> 1.29.3'
-  s.add_dependency 'rails', '~> 3.2.11'
-  s.add_dependency 'kaminari', '0.13.0'
-  s.add_dependency 'deface', '>= 0.9.0'
-  s.add_dependency 'stringex', '~> 1.3.2'
-  s.add_dependency 'cancan', '1.6.8'
-  s.add_dependency 'money', '5.0.0'
-  s.add_dependency 'rabl', '0.7.2'
 end

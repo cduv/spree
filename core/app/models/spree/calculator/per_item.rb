@@ -2,19 +2,17 @@ require_dependency 'spree/calculator'
 
 module Spree
   class Calculator::PerItem < Calculator
-    preference :amount, :decimal, :default => 0
-    preference :currency, :string, :default => Spree::Config[:currency]
-
-    attr_accessible :preferred_amount, :preferred_currency
+    preference :amount, :decimal, default: 0
+    preference :currency, :string, default: Spree::Config[:currency]
 
     def self.description
-      I18n.t(:flat_rate_per_item)
+      Spree.t(:flat_rate_per_item)
     end
 
     def compute(object=nil)
       return 0 if object.nil?
       self.preferred_amount * object.line_items.reduce(0) do |sum, value|
-        if !matching_products || matching_products.include?(value.product)
+        if matching_products.blank? || matching_products.include?(value.product)
           value_to_add = value.quantity
         else
           value_to_add = 0

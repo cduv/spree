@@ -4,7 +4,7 @@ module Spree
       module RablTemplate
         def to_format
           if template
-            render template.to_sym, :status => options[:status] || 200
+            render template, :status => options[:status] || 200
           else
             super
           end
@@ -14,7 +14,7 @@ module Spree
         end
 
         def template
-          request.headers['X-Spree-Template'] || controller.params[:template] || options[:default_template]
+          request.headers.env['X-Spree-Template'] || controller.params[:template] || options[:default_template]
         end
       end
     end

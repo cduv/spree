@@ -1,12 +1,12 @@
 module Spree
   class PaymentMethod < ActiveRecord::Base
+    acts_as_paranoid
     DISPLAY = [:both, :front_end, :back_end]
-    default_scope where(:deleted_at => nil)
+    default_scope -> { where(deleted_at: nil) }
 
-    scope :production, lambda { where(:environment => 'production') }
+    scope :production, -> { where(environment: 'production') }
 
-    attr_accessible :name, :description, :environment, :display_on, :active
-    validates :name, :presence => true
+    validates :name, presence: true
 
     def self.providers
       Rails.application.config.spree.payment_methods
@@ -32,19 +32,15 @@ module Spree
     end
 
     def self.active?
-      where(:type => self.to_s, :environment => Rails.env, :active => true).count > 0
+      where(type: self.to_s, environment: Rails.env, active: true).count > 0
     end
 
     def method_type
       type.demodulize.downcase
     end
 
-    def destroy
-      touch :deleted_at
-    end
-
     def self.find_with_destroyed *args
-      self.with_exclusive_scope { find(*args) }
+      unscoped { find(*args) }
     end
 
     def payment_profiles_supported?
@@ -57,6 +53,10 @@ module Spree
 
     def auto_capture?
       Spree::Config[:auto_capture]
+    end
+
+    def supports?(source)
+      true
     end
   end
 end

@@ -7,7 +7,7 @@ module Spree
 
     let!(:product) { create(:product) }
     let!(:inactive_product) { create(:product, :available_on => Time.now.tomorrow, :name => "inactive") }
-    let(:attributes) { [:id, :name, :description, :price, :available_on, :permalink, :count_on_hand, :meta_description, :meta_keywords, :taxon_ids] }
+    let(:attributes) { [:id, :name, :description, :price, :display_price, :available_on, :permalink, :meta_description, :meta_keywords, :shipping_category_id, :taxon_ids] }
 
     before do
       stub_authentication!
@@ -17,9 +17,24 @@ module Spree
       it "retrieves a list of products" do
         api_get :index
         json_response["products"].first.should have_attributes(attributes)
-        json_response["count"].should == 1
+        json_response["total_count"].should == 1
         json_response["current_page"].should == 1
         json_response["pages"].should == 1
+        json_response["per_page"].should == Kaminari.config.default_per_page
+      end
+
+      it "retrieves a list of products by id" do
+        api_get :index, :ids => [product.id]
+        json_response["products"].first.should have_attributes(attributes)
+        json_response["total_count"].should == 1
+        json_response["current_page"].should == 1
+        json_response["pages"].should == 1
+        json_response["per_page"].should == Kaminari.config.default_per_page
+      end
+
+      it "does not return inactive products when queried by ids" do
+        api_get :index, :ids => [inactive_product.id]
+        json_response["count"].should == 0
       end
 
       it "does not list unavailable products" do
@@ -28,11 +43,9 @@ module Spree
       end
 
       context "pagination" do
-        default_per_page(1)
-
         it "can select the next page of products" do
           second_product = create(:product)
-          api_get :index, :page => 2
+          api_get :index, :page => 2, :per_page => 1
           json_response["products"].first.should have_attributes(attributes)
           json_response["total_count"].should == 2
           json_response["current_page"].should == 2
@@ -66,18 +79,24 @@ module Spree
 
       it "gets a single product" do
         product.master.images.create!(:attachment => image("thinking-cat.jpg"))
+        product.variants.create!
+        product.variants.first.images.create!(:attachment => image("thinking-cat.jpg"))
         product.set_property("spree", "rocks")
         api_get :show, :id => product.to_param
         json_response.should have_attributes(attributes)
         json_response['variants'].first.should have_attributes([:name,
                                                               :is_master,
-                                                              :count_on_hand,
-                                                              :price])
+                                                              :price,
+                                                              :images])
 
-        json_response["images"].first.should have_attributes([:attachment_file_name,
-                                                            :attachment_width,
-                                                            :attachment_height,
-                                                            :attachment_content_type])
+        json_response['variants'].first['images'].first.should have_attributes([:attachment_file_name,
+                                                                                :attachment_width,
+                                                                                :attachment_height,
+                                                                                :attachment_content_type,
+                                                                                :mini_url,
+                                                                                :small_url,
+                                                                                :product_url,
+                                                                                :large_url])
 
         json_response["product_properties"].first.should have_attributes([:value,
                                                                          :product_id,
@@ -104,14 +123,12 @@ module Spree
 
       it "cannot see inactive products" do
         api_get :show, :id => inactive_product.to_param
-        json_response["error"].should == "The resource you were looking for could not be found."
-        response.status.should == 404
+        assert_not_found!
       end
 
       it "returns a 404 error when it cannot find a product" do
         api_get :show, :id => "non-existant"
-        json_response["error"].should == "The resource you were looking for could not be found."
-        response.status.should == 404
+        assert_not_found!
       end
 
       it "can learn how to create a new product" do
@@ -120,6 +137,7 @@ module Spree
         required_attributes = json_response["required_attributes"]
         required_attributes.should include("name")
         required_attributes.should include("price")
+        required_attributes.should include("shipping_category_id")
       end
 
       it_behaves_like "modifying product actions are restricted"
@@ -139,7 +157,7 @@ module Spree
       # Regression test for #1626
       context "deleted products" do
         before do
-          create(:product, :deleted_at => Time.now)
+          create(:product, :deleted_at => 1.day.ago)
         end
 
         it "does not include deleted products" do
@@ -155,7 +173,8 @@ module Spree
 
       it "can create a new product" do
         api_post :create, :product => { :name => "The Other Product",
-                                        :price => 19.99 }
+                                        :price => 19.99,
+                                        :shipping_category_id => create(:shipping_category).id }
         json_response.should have_attributes(attributes)
         response.status.should == 201
       end
@@ -172,7 +191,8 @@ module Spree
 
         it "can still create a product" do
           api_post :create, :product => { :name => "The Other Product",
-                                          :price => 19.99 },
+                                          :price => 19.99,
+                                          :shipping_category_id => create(:shipping_category).id },
                             :token => "fake"
           json_response.should have_attributes(attributes)
           response.status.should == 201
@@ -185,7 +205,7 @@ module Spree
         json_response["error"].should == "Invalid resource. Please fix errors and try again."
         errors = json_response["errors"]
         errors.delete("permalink") # Don't care about this one.
-        errors.keys.should =~ ["name", "price"]
+        errors.keys.should =~ ["name", "price", "shipping_category_id"]
       end
 
       it "can update a product" do

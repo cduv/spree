@@ -1,10 +1,10 @@
 class Spree::Preference < ActiveRecord::Base
-  attr_accessible :key, :value_type, :value
+  serialize :value
 
-  validates :key, :presence => true
-  validates :value_type, :presence => true
+  validates :key, presence: true
+  validates :value_type, presence: true
 
-  scope :valid, lambda { where(Spree::Preference.arel_table[:key].not_eq(nil)).where(Spree::Preference.arel_table[:value_type].not_eq(nil)) }
+  scope :valid, -> { where(Spree::Preference.arel_table[:key].not_eq(nil)).where(Spree::Preference.arel_table[:value_type].not_eq(nil)) }
 
   # The type conversions here should match
   # the ones in spree::preferences::preferrable#convert_preference_value
@@ -32,5 +32,4 @@ class Spree::Preference < ActiveRecord::Base
   def raw_value
     self[:value]
   end
-
 end

@@ -9,6 +9,7 @@
 .idea
 .loadpath
 .project
+.ruby-version
 bin/*
 public/dispatch.cgi
 public/dispatch.fcgi
@@ -53,3 +54,4 @@ test_app
 .rvmrc
 **/coverage
 */.sass-cache
+.localeapp

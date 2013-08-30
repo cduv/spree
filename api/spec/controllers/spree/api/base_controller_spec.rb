@@ -4,7 +4,20 @@ describe Spree::Api::BaseController do
   render_views
   controller(Spree::Api::BaseController) do
     def index
-      render :json => { "products" => [] }
+      render :text => { "products" => [] }.to_json
+    end
+  end
+
+  context "signed in as a user using an authentication extension" do
+    before do
+      controller.stub :try_spree_current_user => double(:email => "spree@example.com")
+      Spree::Api::Config[:requires_authentication] = true
+    end
+
+    it "can make a request" do
+      api_get :index
+      json_response.should == { "products" => [] }
+      response.status.should == 200
     end
   end
 
@@ -36,7 +49,7 @@ describe Spree::Api::BaseController do
   end
 
   it "maps symantec keys to nested_attributes keys" do
-    klass = stub(:nested_attributes_options => { :line_items => {},
+    klass = double(:nested_attributes_options => { :line_items => {},
                                                   :bill_address => {} })
     attributes = { 'line_items' => { :id => 1 },
                    'bill_address' => { :id => 2 },

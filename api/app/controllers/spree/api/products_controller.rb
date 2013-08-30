@@ -1,15 +1,20 @@
 module Spree
   module Api
     class ProductsController < Spree::Api::BaseController
-      respond_to :json
 
       def index
-        @products = product_scope.ransack(params[:q]).result.page(params[:page]).per(params[:per_page])
-        respond_with(@products)
+        if params[:ids]
+          @products = product_scope.where(:id => params[:ids])
+        else
+          @products = product_scope.ransack(params[:q]).result
+        end
+
+        @products = @products.page(params[:page]).per(params[:per_page])
       end
 
       def show
         @product = find_product(params[:id])
+        expires_in 3.minutes
         respond_with(@product)
       end
 
@@ -19,18 +24,23 @@ module Spree
       def create
         authorize! :create, Product
         params[:product][:available_on] ||= Time.now
-        @product = Product.new(params[:product])
-        if @product.save
-          respond_with(@product, :status => 201, :default_template => :show)
-        else
-          invalid_resource!(@product)
+        begin
+          @product = Product.new(product_params)
+          if @product.save
+            respond_with(@product, :status => 201, :default_template => :show)
+          else
+            invalid_resource!(@product)
+          end
+        rescue ActiveRecord::RecordNotUnique
+          @product.permalink = nil
+          retry
         end
-      end
+      end 
 
       def update
-        authorize! :update, Product
         @product = find_product(params[:id])
-        if @product.update_attributes(params[:product])
+        authorize! :update, @product
+        if @product.update_attributes(product_params)
           respond_with(@product, :status => 200, :default_template => :show)
         else
           invalid_resource!(@product)
@@ -38,12 +48,17 @@ module Spree
       end
 
       def destroy
-        authorize! :delete, Product
         @product = find_product(params[:id])
+        authorize! :destroy, @product
         @product.update_attribute(:deleted_at, Time.now)
         @product.variants_including_master.update_all(:deleted_at => Time.now)
         respond_with(@product, :status => 204)
       end
+
+      private
+        def product_params
+          params.require(:product).permit(permitted_product_attributes)
+        end
     end
   end
 end

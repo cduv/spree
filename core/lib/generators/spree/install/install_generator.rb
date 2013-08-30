@@ -53,28 +53,36 @@ module Spree
       return unless File.exists? 'public/robots.txt'
       append_file "public/robots.txt", <<-ROBOTS
 User-agent: *
-Disallow: /checkouts
+Disallow: /checkout
+Disallow: /cart
 Disallow: /orders
 Disallow: /countries
 Disallow: /line_items
 Disallow: /password_resets
 Disallow: /states
 Disallow: /user_sessions
+Disallow: /user_registrations
 Disallow: /users
+Disallow: /account
       ROBOTS
     end
 
     def setup_assets
       @lib_name = 'spree'
       %w{javascripts stylesheets images}.each do |path|
-        empty_directory "app/assets/#{path}/store"
-        empty_directory "app/assets/#{path}/admin"
+        empty_directory "app/assets/#{path}/store" if defined? Spree::Frontend || Rails.env.test?
+        empty_directory "app/assets/#{path}/admin" if defined? Spree::Backend || Rails.env.test?
       end
 
-      template "app/assets/javascripts/store/all.js"
-      template "app/assets/javascripts/admin/all.js"
-      template "app/assets/stylesheets/store/all.css"
-      template "app/assets/stylesheets/admin/all.css"
+      if defined? Spree::Frontend || Rails.env.test?
+        template "app/assets/javascripts/store/all.js"
+        template "app/assets/stylesheets/store/all.css"
+      end
+
+      if defined? Spree::Backend || Rails.env.test?
+        template "app/assets/javascripts/admin/all.js"
+        template "app/assets/stylesheets/admin/all.css"
+      end
     end
 
     def create_overrides_directory
@@ -96,8 +104,6 @@ Disallow: /users
       end
     end
       APP
-
-      append_file "config/environment.rb", "\nActiveRecord::Base.include_root_in_json = true\n"
     end
 
     def include_seed_data

@@ -1,10 +1,8 @@
 module Spree
   class State < ActiveRecord::Base
-    belongs_to :country
+    belongs_to :country, class_name: 'Spree::Country'
 
-    validates :country, :name, :presence => true
-
-    attr_accessible :name, :abbr
+    validates :country, :name, presence: true
 
     def self.find_all_by_name_or_abbr(name_or_abbr)
       where('name = ? OR abbr = ?', name_or_abbr, name_or_abbr)

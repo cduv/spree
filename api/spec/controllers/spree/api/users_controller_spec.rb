@@ -22,7 +22,7 @@ module Spree
       it "cannot get other users details" do
         api_get :show, :id => stranger.id
 
-        assert_unauthorized!
+        assert_not_found!
       end
 
       it "can learn how to create a new user" do
@@ -50,7 +50,7 @@ module Spree
 
       it "cannot update other users details" do
         api_put :update, :id => stranger.id, :user => { :email => "mine@example.com" }
-        assert_unauthorized!
+        assert_not_found!
       end
 
       it "can delete itself" do
@@ -60,7 +60,7 @@ module Spree
 
       it "cannot delete other user" do
         api_delete :destroy, :id => stranger.id
-        assert_unauthorized!
+        assert_not_found!
       end
 
       it "should only get own details on index" do
@@ -108,10 +108,19 @@ module Spree
         response.status.should == 201
       end
 
-      it "can destroy" do
+      it "can destroy user without orders" do
+        user.orders.destroy_all
         api_delete :destroy, :id => user.id
         response.status.should == 204
       end
+
+      it "cannot destroy user with orders" do
+        create(:completed_order_with_totals, :user => user)
+        api_delete :destroy, :id => user.id
+        json_response["exception"].should eq "Spree::LegacyUser::DestroyWithOrdersError"
+        response.status.should == 422
+      end
+
     end
   end
 end

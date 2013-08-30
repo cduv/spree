@@ -2,12 +2,13 @@
 module Spree
   class LegacyUser < ActiveRecord::Base
     self.table_name = 'spree_users'
-    attr_accessible :email, :password, :password_confirmation
+    has_many :orders, foreign_key: :user_id
+    belongs_to :ship_address, class_name: 'Spree::Address'
+    belongs_to :bill_address, class_name: 'Spree::Address'
 
-    belongs_to :ship_address, :class_name => 'Spree::Address'
-    belongs_to :bill_address, :class_name => 'Spree::Address'
+    before_destroy :check_completed_orders
 
-    scope :registered
+    class DestroyWithOrdersError < StandardError; end
 
     def anonymous?
       false
@@ -24,5 +25,11 @@ module Spree
 
     attr_accessor :password
     attr_accessor :password_confirmation
+
+    private
+
+      def check_completed_orders
+        raise DestroyWithOrdersError if orders.complete.present?
+      end
   end
 end

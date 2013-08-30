@@ -1,7 +1,7 @@
 module Spree
   class OrderUpdater
     attr_reader :order
-    delegate :payments, :line_items, :adjustments, :shipments, :update_hooks, :to => :order
+    delegate :payments, :line_items, :adjustments, :shipments, :update_hooks, to: :order
 
     def initialize(order)
       @order = order
@@ -16,29 +16,32 @@ module Spree
     # associations try to save and then in turn try to call +update!+ again.)
     def update
       update_totals
-      update_payment_state
 
-      # give each of the shipments a chance to update themselves
-      shipments.each { |shipment| shipment.update!(order) }#(&:update!)
-      update_shipment_state
+      if order.completed?
+        update_payment_state
+
+        # give each of the shipments a chance to update themselves
+        shipments.each { |shipment| shipment.update!(order) }
+        update_shipment_state
+      end
+      
       update_adjustments
       # update totals a second time in case updated adjustments have an effect on the total
       update_totals
 
       order.update_attributes_without_callbacks({
-        :payment_state => order.payment_state,
-        :shipment_state => order.shipment_state,
-        :item_total => order.item_total,
-        :adjustment_total => order.adjustment_total,
-        :payment_total => order.payment_total,
-        :total => order.total
+        payment_state: order.payment_state,
+        shipment_state: order.shipment_state,
+        item_total: order.item_total,
+        adjustment_total: order.adjustment_total,
+        payment_total: order.payment_total,
+        total: order.total
       })
 
-      #ensure checkout payment always matches order total
-      if order.payment and order.payment.checkout? and order.payment.amount != order.total
-        order.payment.update_attributes_without_callbacks(:amount => order.total)
-      end
+      run_hooks
+    end
 
+    def run_hooks
       update_hooks.each { |hook| order.send hook }
     end
 
@@ -77,10 +80,11 @@ module Spree
         else
           # will return nil if no shipments are found
           order.shipment_state = shipment_states.first
-          if order.shipment_state && order.inventory_units.where(:shipment_id => nil).exists?
-            # shipments exist but there are unassigned inventory units
-            order.shipment_state = 'partial'
-          end
+          # TODO inventory unit states?
+          # if order.shipment_state && order.inventory_units.where(:shipment_id => nil).exists?
+          #   shipments exist but there are unassigned inventory units
+          #   order.shipment_state = 'partial'
+          # end
         end
       end
 
@@ -121,11 +125,21 @@ module Spree
     # Adjustments will check if they are still eligible. Ineligible adjustments
     # are preserved but not counted towards adjustment_total.
     def update_adjustments
-      order.adjustments.reload.each { |adjustment| adjustment.update!(order) }
+      order.adjustments.reload.each { |adjustment| adjustment.update! }
+      choose_best_promotion_adjustment
     end
-    
 
     private
+
+      # Picks one (and only one) promotion to be eligible for this order
+      # This promotion provides the most discount, and if two promotions
+      # have the same amount, then it will pick the latest one.
+      def choose_best_promotion_adjustment
+        if best_promotion_adjustment = order.adjustments.promotion.eligible.reorder("amount ASC, created_at DESC").first
+          other_promotions = order.adjustments.promotion.where("id NOT IN (?)", best_promotion_adjustment.id)
+          other_promotions.update_all(eligible: false)
+        end
+      end
 
       def round_money(n)
         (n * 100).round / 100.0

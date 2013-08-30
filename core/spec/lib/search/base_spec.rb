@@ -3,9 +3,11 @@ require 'spec_helper'
 describe Spree::Core::Search::Base do
 
   before do
-    include ::Spree::ProductFilters
-    @product1 = create(:product, :name => "RoR Mug", :price => 9.00, :on_hand => 1)
-    @product2 = create(:product, :name => "RoR Shirt", :price => 11.00, :on_hand => 1)
+    include Spree::Core::ProductFilters
+    Spree::Product.delete_all # FIXME product leaks
+
+    @product1 = create(:product, :name => "RoR Mug", :price => 9.00)
+    @product2 = create(:product, :name => "RoR Shirt", :price => 11.00)
   end
 
   it "returns all products by default" do
@@ -15,7 +17,7 @@ describe Spree::Core::Search::Base do
   end
 
   it "switches to next page according to the page parameter" do
-    @product3 = create(:product, :name => "RoR Pants", :price => 14.00, :on_hand => 1)
+    @product3 = create(:product, :name => "RoR Pants", :price => 14.00)
 
     params = { :per_page => "2" }
     searcher = Spree::Core::Search::Base.new(params)
@@ -51,7 +53,7 @@ describe Spree::Core::Search::Base do
   end
 
   it "accepts a current user" do
-    user = stub
+    user = double
     searcher = Spree::Core::Search::Base.new({})
     searcher.current_user = user
     searcher.current_user.should eql(user)

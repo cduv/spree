@@ -1,4 +1,4 @@
-Spree::Core::Engine.routes.prepend do
+Spree::Core::Engine.routes.draw do
   namespace :admin do
     resources :users do
       member do
@@ -15,17 +15,29 @@ Spree::Core::Engine.routes.prepend do
     end
 
     resources :images
-    resources :checkouts
-    resources :variants, :only => [:index] do
+    resources :checkouts do
+      member do
+        put :next
+      end
     end
 
-    resources :option_types
+    resources :variants, :only => [:index]
+
+    resources :option_types do
+      resources :option_values
+    end
 
     resources :orders do
-      resources :return_authorizations
+      resources :addresses, :only => [:show, :update]
+
+      resources :return_authorizations do
+        member do
+          put :add
+          put :cancel
+          put :receive
+        end
+      end
       member do
-        put :address
-        put :delivery
         put :cancel
         put :empty
       end
@@ -41,21 +53,40 @@ Spree::Core::Engine.routes.prepend do
         end
       end
 
-      resources :shipments do
+      resources :shipments, :only => [:create, :update] do
         member do
           put :ready
           put :ship
+          put :add
+          put :remove
         end
       end
     end
 
     resources :zones
     resources :countries, :only => [:index, :show]
-    resources :addresses, :only => [:show, :update]
+    resources :states,    :only => [:index, :show]
+
     resources :taxonomies do
-      resources :taxons
+      member do
+        get :jstree
+      end
+      resources :taxons do
+        member do
+          get :jstree
+        end
+      end
     end
+    resources :taxons, :only => [:index]
     resources :inventory_units, :only => [:show, :update]
     resources :users
+    resources :properties
+    resources :stock_locations do
+      resources :stock_movements
+      resources :stock_items
+    end
+
+    get '/config/money', :to => 'config#money'
+    get '/config', :to => 'config#show'
   end
 end

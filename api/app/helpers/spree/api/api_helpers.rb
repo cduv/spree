@@ -12,8 +12,7 @@ module Spree
       end
 
       def product_attributes
-        [:id, :name, :description, :price, :available_on, :permalink,
-          :count_on_hand, :meta_description, :meta_keywords, :taxon_ids]
+        [:id, :name, :description, :price, :display_price, :available_on, :permalink, :meta_description, :meta_keywords, :shipping_category_id, :taxon_ids]
       end
 
       def product_property_attributes
@@ -21,7 +20,7 @@ module Spree
       end
 
       def variant_attributes
-        [:id, :name, :count_on_hand, :sku, :price, :weight, :height, :width, :depth, :is_master, :cost_price, :permalink]
+        [:id, :name, :sku, :price, :weight, :height, :width, :depth, :is_master, :cost_price, :permalink, :description]
       end
 
       def image_attributes
@@ -61,20 +60,27 @@ module Spree
       end
 
       def taxon_attributes
-        [:id, :name, :permalink, :position, :parent_id, :taxonomy_id]
+        [:id, :name, :pretty_name, :permalink, :position, :parent_id, :taxonomy_id]
       end
 
       def inventory_unit_attributes
-        [:id, :lock_version, :state, :variant_id, :order_id,
-         :shipment_id, :return_authorization_id]
+        [:id, :lock_version, :state, :variant_id, :shipment_id, :return_authorization_id]
       end
 
       def return_authorization_attributes
         [:id, :number, :state, :amount, :order_id, :reason, :created_at, :updated_at]
       end
 
+      def address_attributes
+        [:id, :firstname, :lastname, :full_name, :address1, :address2, :city, :zipcode, :phone, :company, :alternative_phone, :country_id, :state_id, :state_name]
+      end
+
       def country_attributes
         [:id, :iso_name, :iso, :iso3, :name, :numcode]
+      end
+
+      def state_attributes
+        [:id, :name, :abbr, :country_id]
       end
 
       def adjustment_attributes
@@ -88,6 +94,23 @@ module Spree
       def user_attributes
         [:id, :email, :created_at, :updated_at]
       end
+
+      def property_attributes
+        [:id, :name, :presentation]
+      end
+
+      def stock_location_attributes
+        [:id, :name, :address1, :address2, :city, :state_id, :state_name, :country_id, :zipcode, :phone, :active]
+      end
+
+      def stock_movement_attributes
+        [:id, :quantity, :stock_item_id]
+      end
+
+      def stock_item_attributes
+        [:id, :count_on_hand, :backorderable, :lock_version, :stock_location_id, :variant_id]
+      end
     end
   end
 end
+
