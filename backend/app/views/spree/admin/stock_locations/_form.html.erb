@@ -12,18 +12,22 @@
     </div>
     <div class="omega four columns">
       <%= f.field_container :active do %>
-        <label for="active"><%= Spree.t(:state) %></label>
+        <label for="active"><%= Spree.t(:status) %></label>
         <ul>
           <li>
             <%= f.label :active, Spree.t(:active) %>
             <%= f.check_box :active %>
           </li>
           <li>
-            <%= f.label :active, Spree.t(:backorderable_default) %>
+            <%= f.label :default, Spree.t(:default) %>
+            <%= f.check_box :default %>
+          </li>
+          <li>
+            <%= f.label :backorderable_default, Spree.t(:backorderable_default) %>
             <%= f.check_box :backorderable_default %>
           </li>
           <li>
-            <%= f.label :active, Spree.t(:propagate_all_variants) %>
+            <%= f.label :propagate_all_variants, Spree.t(:propagate_all_variants) %>
             <%= f.check_box :propagate_all_variants %>
           </li>
         </ul>
@@ -90,7 +94,7 @@
 </div>
 
 <% content_for :head do %>
-  <%= javascript_include_tag 'admin/address_states.js' %>
+  <%= javascript_include_tag 'spree/backend/address_states.js' %>
   <%= javascript_tag do -%>
     $(document).ready(function(){
       $('span#country .select2').on('change', function() { update_state(''); });

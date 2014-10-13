@@ -3,15 +3,17 @@
 require 'spec_helper'
 
 module ThirdParty
-  class Extension < ActiveRecord::Base
+  class Extension < Spree::Base
     # nasty hack so we don't have to create a table to back this fake model
     self.table_name = 'spree_products'
   end
 end
 
 describe Spree::Product do
+
   context 'product instance' do
     let(:product) { create(:product) }
+    let(:variant) { create(:variant, :product => product) }
 
     context '#duplicate' do
       before do
@@ -38,6 +40,76 @@ describe Spree::Product do
       end
     end
 
+    context "master variant" do
+
+      context "when master variant changed" do
+        before do
+          product.master.sku = "Something changed"
+        end
+
+        it "saves the master" do
+          product.master.should_receive(:save!)
+          product.save
+        end
+      end
+
+      context "when master variant is not valid" do
+        let(:other_product){ create(:product, sku: "TEST") }
+        before do
+          product.master.sku = other_product.sku
+        end
+
+        it "should not be saved" do
+          expect { product.save! }.to raise_error
+        end
+      end
+
+      context "when master default price is a new record" do
+        before do
+          @price = product.master.build_default_price
+          @price.price = 12
+        end
+
+        it "saves the master" do
+          product.master.should_receive(:save!)
+          product.save
+        end
+
+        it "saves the default price" do
+          proc do
+            product.save
+          end.should change{ @price.new_record? }.from(true).to(false)
+        end
+
+      end
+
+      context "when master default price changed" do
+        before do
+          master = product.master
+          master.default_price = create(:price, :variant => master)
+          master.save!
+          product.master.default_price.price = 12
+        end
+
+        it "saves the master" do
+          product.master.should_receive(:save!)
+          product.save
+        end
+
+        it "saves the default price" do
+          product.master.default_price.should_receive(:save)
+          product.save
+        end
+      end
+
+      context "when master variant and price haven't changed" do
+        it "does not save the master" do
+          product.master.should_not_receive(:save!)
+          product.save
+        end
+      end
+    end
+
     context "product has no variants" do
       context "#destroy" do
         it "should set deleted_at value" do
@@ -57,7 +129,7 @@ describe Spree::Product do
         it "should set deleted_at value" do
           product.destroy
           product.deleted_at.should_not be_nil
-          product.variants_including_master.all? { |v| !v.deleted_at.nil? }.should be_true
+          product.variants_including_master.all? { |v| !v.deleted_at.nil? }.should be true
         end
       end
     end
@@ -115,6 +187,11 @@ describe Spree::Product do
         product.available_on = 1.day.from_now
         product.should_not be_available
       end
+
+      it "should not be available if destroyed" do 
+        product.destroy 
+        product.should_not be_available 
+      end 
     end
 
     context "variants_and_option_values" do
@@ -142,68 +219,64 @@ describe Spree::Product do
       end
     end
 
-  end
+    context "has stock movements" do
+      let(:product) { create(:product) }
+      let(:variant) { product.master }
+      let(:stock_item) { variant.stock_items.first }
 
-  context "permalink" do
-    context "build product with similar name" do
-      let!(:other) { create(:product, :name => 'foo bar') }
-      let(:product) { build(:product, :name => 'foo') }
-
-      before { product.valid? }
-
-      it "increments name" do
-        product.permalink.should == 'foo-1'
+      it "doesnt raise ReadOnlyRecord error" do
+        Spree::StockMovement.create!(stock_item: stock_item, quantity: 1)
+        expect { product.destroy }.not_to raise_error
       end
     end
 
-    context "build permalink with quotes" do
-      it "saves quotes" do
-        product = create(:product, :name => "Joe's", :permalink => "joe's")
-        product.permalink.should == "joe's"
+    # Regression test for #3737
+    context "has stock items" do
+      let(:product) { create(:product) }
+      it "can retrieve stock items" do
+        product.master.stock_items.first.should_not be_nil
+        product.stock_items.first.should_not be_nil
       end
     end
 
-    context "permalinks must be unique" do
-      before do
-        @product1 = create(:product, :name => 'foo')
+    context "slugs" do
+
+      it "normalizes slug on update validation" do
+        product.slug = "hey//joe"
+        product.valid?
+        expect(product.slug).not_to match "/"
       end
 
-      it "cannot create another product with the same permalink" do
-        @product2 = create(:product, :name => 'foo')
-        lambda do
-          @product2.update_attributes(:permalink => @product1.permalink)
-        end.should raise_error(ActiveRecord::RecordNotUnique)
+      it "renames slug on destroy" do
+        old_slug = product.slug
+        product.destroy
+        expect(old_slug).to_not eq product.slug
       end
-    end
 
-    it "supports Chinese" do
-      create(:product, :name => "你好").permalink.should == "ni-hao"
-    end
+      it "validates slug uniqueness" do
+        existing_product = product
+        new_product = create(:product)
+        new_product.slug = existing_product.slug
 
-    context "manual permalink override" do
-      let(:product) { create(:product, :name => "foo") }
-
-      it "calling save_permalink with a parameter" do
-        product.name = "foobar"
-        product.save
-        product.permalink.should == "foo"
-
-        product.save_permalink(product.name)
-        product.permalink.should == "foobar"
+        expect(new_product.valid?).to eq false
       end
+
+      it "falls back to 'name-sku' for slug if regular name-based slug already in use" do
+        product1 = build(:product)
+        product1.name = "test"
+        product1.sku = "123"
+        product1.save!
+
+        product2 = build(:product)
+        product2.name = "test"
+        product2.sku = "456"
+        product2.save!
+
+        expect(product2.slug).to eq 'test-456'
+      end
+
     end
 
-    context "override permalink of deleted product" do 
-      let(:product) { create(:product, :name => "foo") } 
-
-      it "should create product with same permalink from name like deleted product" do 
-        product.permalink.should == "foo" 
-        product.destroy 
-        
-        new_product = create(:product, :name => "foo") 
-        new_product.permalink.should == "foo" 
-      end 
-    end 
   end
 
   context "properties" do
@@ -239,6 +312,23 @@ describe Spree::Product do
       product.set_property('bar', 'value2')
       Spree::Property.where(:name => 'foo').first.presentation.should == "Foo's Presentation Name"
       Spree::Property.where(:name => 'bar').first.presentation.should == "bar"
+    end
+
+    # Regression test for #4416
+    context "#possible_promotions" do
+      let!(:promotion) do
+        create(:promotion, advertise: true, starts_at: 1.day.ago)
+      end
+      let!(:rule) do
+        Spree::Promotion::Rules::Product.create(
+          promotion: promotion,
+          products: [product]
+        )
+      end
+
+      it "lists the promotion as a possible promotion" do
+        product.possible_promotions.should include(promotion)
+      end
     end
   end
 
@@ -341,25 +431,37 @@ describe Spree::Product do
   context "classifications and taxons" do
     it "is joined through classifications" do
       reflection = Spree::Product.reflect_on_association(:taxons)
-      reflection.options[:through] = :classifications
+      expect(reflection.options[:through]).to eq(:classifications)
     end
 
     it "will delete all classifications" do
       reflection = Spree::Product.reflect_on_association(:classifications)
-      reflection.options[:dependent] = :delete_all
+      expect(reflection.options[:dependent]).to eq(:delete_all)
     end
   end
 
-  describe '#total_on_hand' do
+  context '#total_on_hand' do
     it 'should be infinite if track_inventory_levels is false' do
       Spree::Config[:track_inventory_levels] = false
-      build(:product).total_on_hand.should eql(Float::INFINITY)
+      build(:product, :variants_including_master => [build(:master_variant)]).total_on_hand.should eql(Float::INFINITY)
+    end
+
+    it 'should be infinite if variant is on demand' do
+      Spree::Config[:track_inventory_levels] = true
+      build(:product, :variants_including_master => [build(:on_demand_master_variant)]).total_on_hand.should eql(Float::INFINITY)
     end
 
     it 'should return sum of stock items count_on_hand' do
-      product = build(:product)
-      product.stub stock_items: [double(Spree::StockItem, count_on_hand: 5)]
+      product = create(:product)
+      product.stock_items.first.set_count_on_hand 5
+      product.variants_including_master(true) # force load association
       product.total_on_hand.should eql(5)
+    end
+
+    it 'should return sum of stock items count_on_hand when variants_including_master is not loaded' do
+      product = create(:product)
+      product.stock_items.first.set_count_on_hand 5
+      product.reload.total_on_hand.should eql(5)
     end
   end
 end

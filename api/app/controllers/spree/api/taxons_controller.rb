@@ -11,6 +11,8 @@ module Spree
             @taxons = Spree::Taxon.accessible_by(current_ability, :read).order(:taxonomy_id, :lft).ransack(params[:q]).result
           end
         end
+
+        @taxons = @taxons.page(params[:page]).per(params[:per_page])
         respond_with(@taxons)
       end
 
@@ -56,6 +58,15 @@ module Spree
         authorize! :destroy, taxon
         taxon.destroy
         respond_with(taxon, status: 204)
+      end
+
+      def products
+        # Returns the products sorted by their position with the classification
+        # Products#index does not do the sorting.
+        taxon = Spree::Taxon.find(params[:id])
+        @products = taxon.products.ransack(params[:q]).result
+        @products = @products.page(params[:page]).per(500 || params[:per_page])
+        render "spree/api/products/index"
       end
 
       private

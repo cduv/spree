@@ -7,10 +7,11 @@ module Spree
       helper 'spree/admin/tables'
       layout '/spree/layouts/admin'
 
-      before_filter :check_alerts
-      before_filter :authorize_admin
+      before_action :check_alerts
+      before_action :authorize_admin
 
       protected
+
         def action
           params[:action].to_sym
         end
@@ -19,7 +20,7 @@ module Spree
           if respond_to?(:model_class, true) && model_class
             record = model_class
           else
-            record = Object
+            record = controller_name.to_sym
           end
           authorize! :admin, record
           authorize! action, record
@@ -35,15 +36,10 @@ module Spree
 
         def check_alerts
           return unless should_check_alerts?
-
           unless session.has_key? :alerts
-            begin
-              session[:alerts] = Spree::Alert.current(request.host)
-              filter_dismissed_alerts
-              Spree::Config.set :last_check_for_spree_alerts => DateTime.now.to_s
-            rescue
-              session[:alerts] = nil
-            end
+            session[:alerts] = Spree::Alert.current(request.host)
+            filter_dismissed_alerts
+            Spree::Config.set :last_check_for_spree_alerts => DateTime.now.to_s
           end
         end
 
@@ -79,11 +75,23 @@ module Spree
         def filter_dismissed_alerts
           return unless session[:alerts]
           dismissed = (Spree::Config[:dismissed_spree_alerts] || '').split(',')
-          session[:alerts].reject! { |a| dismissed.include? a["id"].to_s }
+          # If it's a string, something has gone wrong with the alerts service. Ignore it.
+          if session[:alerts].is_a?(String)
+            session[:alerts] = nil
+          else
+            session[:alerts].reject! { |a| dismissed.include? a["id"].to_s }
+          end
         end
 
         def config_locale
           Spree::Backend::Config[:locale]
+        end
+
+        def can_not_transition_without_customer_info
+          unless @order.billing_address.present?
+            flash[:notice] = Spree.t(:fill_in_customer_info)
+            redirect_to edit_admin_order_customer_url(@order)
+          end
         end
     end
   end

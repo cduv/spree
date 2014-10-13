@@ -6,62 +6,107 @@ module Spree
       @order = order
     end
 
-    # Get current line item for variant if exists
-    # Add variant qty to line_item
-    def add(variant, quantity = 1, currency = nil, shipment = nil)
-      line_item = order.find_line_item_by_variant(variant)
-      add_to_line_item(line_item, variant, quantity, currency, shipment)
+    def add(variant, quantity = 1, options = {})
+      line_item = add_to_line_item(variant, quantity, options)
+      reload_totals
+      shipment = options[:shipment]
+      shipment.present? ? shipment.update_amounts : order.ensure_updated_shipments
+      PromotionHandler::Cart.new(order, line_item).activate
+      ItemAdjustments.new(line_item).update
+      reload_totals
+      line_item
     end
 
-    # Get current line item for variant
-    # Remove variant qty from line_item
-    def remove(variant, quantity = 1, shipment = nil)
-      line_item = order.find_line_item_by_variant(variant)
+    def remove(variant, quantity = 1, options = {})
+      line_item = remove_from_line_item(variant, quantity, options)
+      reload_totals
+      shipment = options[:shipment]
+      shipment.present? ? shipment.update_amounts : order.ensure_updated_shipments
+      PromotionHandler::Cart.new(order, line_item).activate
+      ItemAdjustments.new(line_item).update
+      reload_totals
+      line_item
+    end
 
-      unless line_item
-        raise ActiveRecord::RecordNotFound, "Line item not found for variant #{variant.sku}"
+    def update_cart(params)
+      if order.update_attributes(filter_order_items(params))
+        order.line_items = order.line_items.select { |li| li.quantity > 0 }
+        # Update totals, then check if the order is eligible for any cart promotions.
+        # If we do not update first, then the item total will be wrong and ItemTotal
+        # promotion rules would not be triggered.
+        reload_totals
+        PromotionHandler::Cart.new(order).activate
+        order.ensure_updated_shipments
+        reload_totals
+        true
+      else
+        false
       end
-
-      remove_from_line_item(line_item, variant, quantity, shipment)
     end
 
     private
 
-    def add_to_line_item(line_item, variant, quantity, currency=nil, shipment=nil)
-      if line_item
-        line_item.target_shipment = shipment
-        line_item.quantity += quantity.to_i
-        line_item.currency = currency unless currency.nil?
-      else
-        line_item = order.line_items.new(quantity: quantity, variant: variant)
-        line_item.target_shipment = shipment
-        if currency
-          line_item.currency = currency unless currency.nil?
-          line_item.price    = variant.price_in(currency).amount
-        else
-          line_item.price    = variant.price
+      def filter_order_items(params)
+        filtered_params = params.symbolize_keys
+        return filtered_params if filtered_params[:line_items_attributes].nil? || filtered_params[:line_items_attributes][:id]
+
+        params[:line_items_attributes].each_pair do |id, value|
+          line_item_id = value[:id]
+          filtered_params[:line_items_attributes].delete(id) unless Spree::LineItem.find_by_id(line_item_id.to_i)
         end
+        filtered_params
       end
 
-      line_item.save
-      order.reload
-      line_item
-    end
+      def order_updater
+        @updater ||= OrderUpdater.new(order)
+      end
 
-    def remove_from_line_item(line_item, variant, quantity, shipment=nil)
-      line_item.quantity += -quantity
-      line_item.target_shipment= shipment
+      def reload_totals
+        order_updater.update_item_count
+        order_updater.update
+        order.reload
+      end
 
-      if line_item.quantity == 0
-        Spree::OrderInventory.new(order).verify(line_item, shipment)
-        line_item.destroy
-      else
+      def add_to_line_item(variant, quantity, options = {})
+        line_item = grab_line_item_by_variant(variant, false, options)
+
+        if line_item
+          line_item.quantity += quantity.to_i
+          line_item.currency = currency unless currency.nil?
+        else
+          opts = { currency: order.currency }.merge ActionController::Parameters.new(options).
+                                              permit(PermittedAttributes.line_item_attributes)
+          line_item = order.line_items.new(quantity: quantity,
+                                            variant: variant,
+                                            options: opts)
+        end
+        line_item.target_shipment = options[:shipment] if options.has_key? :shipment
         line_item.save!
+        line_item
       end
 
-      order.reload
-      line_item
-    end
+      def remove_from_line_item(variant, quantity, options = {})
+        line_item = grab_line_item_by_variant(variant, true, options)
+        line_item.quantity -= quantity
+        line_item.target_shipment= options[:shipment]
 
+        if line_item.quantity == 0
+          line_item.destroy
+        else
+          line_item.save!
+        end
+
+        line_item
+      end
+
+      def grab_line_item_by_variant(variant, raise_error = false, options = {})
+        line_item = order.find_line_item_by_variant(variant, options)
+
+        if !line_item.present? && raise_error
+          raise ActiveRecord::RecordNotFound, "Line item not found for variant #{variant.sku}"
+        end
+
+        line_item
+      end
   end
 end

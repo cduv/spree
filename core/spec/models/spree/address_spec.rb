@@ -1,6 +1,9 @@
 require 'spec_helper'
 
 describe Spree::Address do
+
+  subject { Spree::Address }
+
   describe "clone" do
     it "creates a copy of the address with the exception of the id, updated_at and created_at attributes" do
       state = create(:state)
@@ -16,7 +19,7 @@ describe Spree::Address do
                          :phone => 'phone',
                          :state_id => state.id,
                          :state_name => state.name,
-                         :zipcode => 'zip_code')
+                         :zipcode => '10001')
 
       cloned = original.clone
 
@@ -98,7 +101,7 @@ describe Spree::Address do
 
     it "state is entered but country does not contain that state" do
       address.state = state
-      address.country = stub_model(Spree::Country)
+      address.country = stub_model(Spree::Country, :states_required => true)
       address.valid?
       address.errors["state"].should == ['is invalid']
     end
@@ -106,7 +109,7 @@ describe Spree::Address do
     it "both state and state_name are entered but country does not contain the state" do
       address.state = state
       address.state_name = 'maryland'
-      address.country = stub_model(Spree::Country)
+      address.country = stub_model(Spree::Country, :states_required => true)
       address.should be_valid
       address.state_id.should be_nil
     end
@@ -134,7 +137,42 @@ describe Spree::Address do
     it "requires zipcode" do
       address.zipcode = ""
       address.valid?
-      address.should have(1).error_on(:zipcode)
+      address.errors['zipcode'].should include("can't be blank")
+    end
+
+    context "zipcode validation" do
+      it "validates the zipcode" do
+        address.country.stub(:iso).and_return('US')
+        address.zipcode = 'abc'
+        address.valid?
+        address.errors['zipcode'].should include('is invalid')
+      end
+
+      context 'does not validate' do
+        it 'does not have a country' do
+          address.country = nil
+          address.valid?
+          address.errors['zipcode'].should_not include('is invalid')
+        end
+
+        it 'does not have an iso' do
+          address.country.stub(:iso).and_return(nil)
+          address.valid?
+          address.errors['zipcode'].should_not include('is invalid')
+        end
+
+        it 'does not have a zipcode' do
+          address.zipcode = ""
+          address.valid?
+          address.errors['zipcode'].should_not include('is invalid')
+        end
+
+        it 'does not have a supported country iso' do
+          address.country.stub(:iso).and_return('BO')
+          address.valid?
+          address.errors['zipcode'].should_not include('is invalid')
+        end
+      end
     end
 
     context "phone not required" do
@@ -143,7 +181,7 @@ describe Spree::Address do
       it "shows no errors when phone is blank" do
         address.phone = ""
         address.valid?
-        address.should have(:no).errors_on(:phone)
+        expect(address.errors[:phone].size).to eq 0
       end
     end
 
@@ -153,29 +191,47 @@ describe Spree::Address do
       it "shows no errors when phone is blank" do
         address.zipcode = ""
         address.valid?
-        address.should have(:no).errors_on(:zipcode)
+        expect(address.errors[:zipcode].size).to eq 0
       end
     end
   end
 
   context ".default" do
-    before do
-      @default_country_id = Spree::Config[:default_country_id]
-      new_country = create(:country)
-      Spree::Config[:default_country_id] = new_country.id
+    context "no user given" do
+      before do
+        @default_country_id = Spree::Config[:default_country_id]
+        new_country = create(:country)
+        Spree::Config[:default_country_id] = new_country.id
+      end
+
+      after do
+        Spree::Config[:default_country_id] = @default_country_id
+      end
+
+      it "sets up a new record with Spree::Config[:default_country_id]" do
+        Spree::Address.default.country.should == Spree::Country.find(Spree::Config[:default_country_id])
+      end
+
+      # Regression test for #1142
+      it "uses the first available country if :default_country_id is set to an invalid value" do
+        Spree::Config[:default_country_id] = "0"
+        Spree::Address.default.country.should == Spree::Country.first
+      end
     end
 
-    after do
-      Spree::Config[:default_country_id] = @default_country_id
-    end
-    it "sets up a new record with Spree::Config[:default_country_id]" do
-      Spree::Address.default.country.should == Spree::Country.find(Spree::Config[:default_country_id])
-    end
+    context "user given" do
+      let(:bill_address) { Spree::Address.new(phone: Time.now.to_i) }
+      let(:ship_address) { double("ShipAddress") }
+      let(:user) { double("User", bill_address: bill_address, ship_address: ship_address) }
 
-    # Regression test for #1142
-    it "uses the first available country if :default_country_id is set to an invalid value" do
-      Spree::Config[:default_country_id] = "0"
-      Spree::Address.default.country.should == Spree::Country.first
+      it "returns a copy of that user bill address" do
+        expect(subject.default(user).phone).to eq bill_address.phone
+      end
+
+      it "falls back to build default when user has no address" do
+        user.stub(bill_address: nil)
+        expect(subject.default(user)).to eq subject.build_default
+      end
     end
   end
 
@@ -223,6 +279,6 @@ describe Spree::Address do
 
   context "defines require_phone? helper method" do
     let(:address) { stub_model(Spree::Address) }
-    specify { address.instance_eval{ require_phone? }.should be_true}
+    specify { address.instance_eval{ require_phone? }.should be true}
   end
 end

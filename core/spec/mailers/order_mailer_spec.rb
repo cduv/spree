@@ -44,17 +44,8 @@ describe Spree::OrderMailer do
 
   context "only shows eligible adjustments in emails" do
     before do
-      order.adjustments.create(
-        :label    => "Eligible Adjustment",
-        :amount   => 10,
-        :eligible => true
-      )
-
-      order.adjustments.create!(
-        :label    => "Ineligible Adjustment",
-        :amount   => -10,
-        :eligible => false
-      )
+      create(:adjustment, :order => order, :eligible => true, :label => "Eligible Adjustment")
+      create(:adjustment, :order => order, :eligible => false, :label => "Ineligible Adjustment")
     end
 
     let!(:confirmation_email) { Spree::OrderMailer.confirm_email(order) }
@@ -75,15 +66,15 @@ describe Spree::OrderMailer do
     # Tests mailer view spree/order_mailer/confirm_email.text.erb
     specify do
       confirmation_email = Spree::OrderMailer.confirm_email(order)
-      confirmation_email.body.should include("4.99")
-      confirmation_email.body.should_not include("5.00")
+      expect(confirmation_email).to have_body_text("4.99")
+      expect(confirmation_email).to_not have_body_text("5.00")
     end
 
     # Tests mailer view spree/order_mailer/cancel_email.text.erb
     specify do
       cancel_email = Spree::OrderMailer.cancel_email(order)
-      cancel_email.body.should include("4.99")
-      cancel_email.body.should_not include("5.00")
+      expect(cancel_email).to have_body_text("4.99")
+      expect(cancel_email).to_not have_body_text("5.00")
     end
   end
 
@@ -91,6 +82,7 @@ describe Spree::OrderMailer do
 
     context "pt-BR locale" do
       before do
+        I18n.enforce_available_locales = false
         pt_br_confirm_mail = { :spree => { :order_mailer => { :confirm_email => { :dear_customer => 'Caro Cliente,' } } } }
         pt_br_cancel_mail = { :spree => { :order_mailer => { :cancel_email => { :order_summary_canceled => 'Resumo da Pedido [CANCELADA]' } } } }
         I18n.backend.store_translations :'pt-BR', pt_br_confirm_mail
@@ -100,21 +92,31 @@ describe Spree::OrderMailer do
 
       after do
         I18n.locale = I18n.default_locale
+        I18n.enforce_available_locales = true
       end
 
       context "confirm_email" do
         specify do
           confirmation_email = Spree::OrderMailer.confirm_email(order)
-          confirmation_email.body.should include("Caro Cliente,")
+          expect(confirmation_email).to have_body_text("Caro Cliente,")
         end
       end
 
       context "cancel_email" do
         specify do
           cancel_email = Spree::OrderMailer.cancel_email(order)
-          cancel_email.body.should include("Resumo da Pedido [CANCELADA]")
+          expect(cancel_email).to have_body_text("Resumo da Pedido [CANCELADA]")
         end
       end
     end
   end
+
+  context "with preference :send_core_emails set to false" do
+    it "sends no email" do
+      Spree::Config.set(:send_core_emails, false)
+      message = Spree::OrderMailer.confirm_email(order)
+      expect(message.body).to be_blank
+    end
+  end
+
 end

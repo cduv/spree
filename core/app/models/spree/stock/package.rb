@@ -1,76 +1,54 @@
 module Spree
   module Stock
     class Package
-      ContentItem = Struct.new(:variant, :quantity, :state)
-
-      attr_reader :stock_location, :order, :contents
+      attr_reader :stock_location, :contents
       attr_accessor :shipping_rates
 
-      def initialize(stock_location, order, contents=[])
+      def initialize(stock_location, contents=[])
         @stock_location = stock_location
-        @order = order
         @contents = contents
         @shipping_rates = Array.new
       end
 
-      def add(variant, quantity, state=:on_hand)
-        contents << ContentItem.new(variant, quantity, state)
+      def add(inventory_unit, state = :on_hand)
+        contents << ContentItem.new(inventory_unit, state) unless find_item(inventory_unit)
+      end
+
+      def add_multiple(inventory_units, state = :on_hand)
+        inventory_units.each { |inventory_unit| add(inventory_unit, state) }
+      end
+
+      def remove(inventory_unit)
+        item = find_item(inventory_unit)
+        @contents -= [item] if item
       end
 
       def weight
-        contents.sum { |item| item.variant.weight * item.quantity }
+        contents.sum(&:weight)
       end
 
       def on_hand
-        contents.select { |item| item.state == :on_hand }
+        contents.select(&:on_hand?)
       end
 
       def backordered
-        contents.select { |item| item.state == :backordered }
+        contents.select(&:backordered?)
       end
 
-      def find_item(variant, state=:on_hand)
-        contents.select do |item|
-          item.variant == variant &&
-          item.state == state
-        end.first
-      end
-
-      def quantity(state=nil)
-        case state
-        when :on_hand
-          on_hand.sum { |item| item.quantity }
-        when :backordered
-          backordered.sum { |item| item.quantity }
-        else
-          contents.sum { |item| item.quantity }
+      def find_item(inventory_unit, state = nil)
+        contents.detect do |item|
+          item.inventory_unit == inventory_unit &&
+            (!state || item.state.to_s == state.to_s)
         end
+      end
+
+      def quantity(state = nil)
+        matched_contents = state.nil? ? contents : contents.select { |c| c.state.to_s == state.to_s }
+        matched_contents.map(&:quantity).sum
       end
 
       def empty?
         quantity == 0
-      end
-
-      def flattened
-        flat = []
-        contents.each do |item|
-          item.quantity.times do
-            flat << ContentItem.new(item.variant, 1, item.state)
-          end
-        end
-        flat
-      end
-
-      def flattened=(flattened)
-        contents.clear
-        flattened.each do |item|
-          current_item = find_item(item.variant, item.state)
-          if current_item
-            current_item.quantity += 1
-          else
-            add(item.variant, item.quantity, item.state)
-          end
-        end
       end
 
       def currency
@@ -82,34 +60,26 @@ module Spree
       end
 
       def shipping_methods
-        shipping_categories.map { |sc| sc.shipping_methods }.flatten.uniq
+        shipping_categories.map(&:shipping_methods).reduce(:&).to_a
       end
 
       def inspect
-        out = "#{order} - "
-        out << contents.map do |content_item|
-          "#{content_item.variant.name} #{content_item.quantity} #{content_item.state}"
-        end.join('/')
-        out
+        contents.map do |content_item|
+          "#{content_item.variant.name} #{content_item.state}"
+        end.join(' / ')
       end
 
       def to_shipment
-        shipment = Spree::Shipment.new
-        shipment.order = order
-        shipment.stock_location = stock_location
-        shipment.shipping_rates = shipping_rates
+        # At this point we should only have one content item per inventory unit
+        # across the entire set of inventory units to be shipped, which has been
+        # taken care of by the Prioritizer
+        contents.each { |content_item| content_item.inventory_unit.state = content_item.state.to_s }
 
-        contents.each do |item|
-          item.quantity.times do |n|
-            unit = shipment.inventory_units.build
-            unit.pending = true
-            unit.order = order
-            unit.variant = item.variant
-            unit.state = item.state.to_s
-          end
-        end
-
-        shipment
+        Spree::Shipment.new(
+          stock_location: stock_location,
+          shipping_rates: shipping_rates,
+          inventory_units: contents.map(&:inventory_unit)
+        )
       end
     end
   end

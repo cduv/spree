@@ -4,17 +4,16 @@ module Spree
   describe ShippingCalculator do
     let(:variant1) { build(:variant, :price => 10) }
     let(:variant2) { build(:variant, :price => 20) }
-    let(:package) { double(Stock::Package,
-                         order: mock_model(Order),
-                         contents: [Stock::Package::ContentItem.new(variant1, 2),
-                           Stock::Package::ContentItem.new(variant2, 1)]) }
+
+    let(:package) do
+      build(:stock_package, variants_contents: { variant1 => 2, variant2 => 1 })
+    end
 
     subject { ShippingCalculator.new }
 
     it 'computes with a shipment' do
       shipment = mock_model(Spree::Shipment)
-      shipment.should_receive(:to_package).and_return(package)
-      subject.should_receive(:compute_package).with(package)
+      subject.should_receive(:compute_shipment).with(shipment)
       subject.compute(shipment)
     end
 
@@ -23,14 +22,20 @@ module Spree
       subject.compute(package)
     end
 
-    it 'compute must be overridden' do
+    it 'compute_shipment must be overridden' do
+      expect {
+        subject.compute_shipment(shipment)
+      }.to raise_error
+    end
+
+    it 'compute_package must be overridden' do
       expect {
         subject.compute_package(package)
       }.to raise_error
     end
 
     it 'checks availability for a package' do
-      subject.available?(package).should be_true
+      subject.available?(package).should be true
     end
 
     it 'calculates totals for content_items' do

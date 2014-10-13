@@ -5,10 +5,10 @@ module Spree
     describe PerItem do
       let(:variant1) { build(:variant) }
       let(:variant2) { build(:variant) }
-      let(:package) { double(Stock::Package,
-                           order: mock_model(Order),
-                           contents: [Stock::Package::ContentItem.new(variant1, 5),
-                                      Stock::Package::ContentItem.new(variant2, 3)]) }
+
+      let(:package) do
+        build(:stock_package, variants_contents: { variant1 => 5, variant2 => 3 })
+      end
 
       subject { PerItem.new(:preferred_amount => 10) }
 

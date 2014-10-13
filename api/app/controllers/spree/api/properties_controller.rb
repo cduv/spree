@@ -2,12 +2,18 @@ module Spree
   module Api
     class PropertiesController < Spree::Api::BaseController
 
-      before_filter :find_property, only: [:show, :update, :destroy]
+      before_action :find_property, only: [:show, :update, :destroy]
 
       def index
-        @properties = Spree::Property.accessible_by(current_ability, :read).
-                      ransack(params[:q]).result.
-                      page(params[:page]).per(params[:per_page])
+        @properties = Spree::Property.accessible_by(current_ability, :read)
+
+        if params[:ids]
+          @properties = @properties.where(:id => params[:ids].split(","))
+        else
+          @properties = @properties.ransack(params[:q]).result
+        end
+
+        @properties = @properties.page(params[:page]).per(params[:per_page])
         respond_with(@properties)
       end
 

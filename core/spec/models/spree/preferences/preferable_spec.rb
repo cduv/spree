@@ -11,7 +11,11 @@ describe Spree::Preferences::Preferable do
         @id = rand(999)
       end
 
-      preference :color, :string, :default => 'green', :description => "My Favorite Color"
+      def preferences
+        @preferences ||= default_preferences
+      end
+
+      preference :color, :string, :default => 'green'
     end
 
     class B < A
@@ -33,13 +37,13 @@ describe Spree::Preferences::Preferable do
 
   describe "preference definitions" do
     it "parent should not see child definitions" do
-      @a.has_preference?(:color).should be_true
-      @a.has_preference?(:flavor).should_not be_true
+      @a.has_preference?(:color).should be true
+      @a.has_preference?(:flavor).should_not be true
     end
 
     it "child should have parent and own definitions" do
-      @b.has_preference?(:color).should be_true
-      @b.has_preference?(:flavor).should be_true
+      @b.has_preference?(:color).should be true
+      @b.has_preference?(:flavor).should be true
     end
 
     it "instances have defaults" do
@@ -49,8 +53,8 @@ describe Spree::Preferences::Preferable do
     end
 
     it "can be asked if it has a preference definition" do
-      @a.has_preference?(:color).should be_true
-      @a.has_preference?(:bad).should be_false
+      @a.has_preference?(:color).should be true
+      @a.has_preference?(:bad).should be false
     end
 
     it "can be asked and raises" do
@@ -69,11 +73,6 @@ describe Spree::Preferences::Preferable do
       @a.preference_default(:color).should eq 'green'
     end
 
-    it "has a description" do
-      @a.preferred_color_description.should eq "My Favorite Color"
-      @a.preference_description(:color).should eq "My Favorite Color"
-    end
-
     it "raises if not defined" do
       expect {
         @a.get_preference :flavor
@@ -86,15 +85,6 @@ describe Spree::Preferences::Preferable do
     it "handles ghost methods for preferences" do
       @a.preferred_color = 'blue'
       @a.preferred_color.should eq 'blue'
-
-      @a.prefers_color = 'green'
-      @a.prefers_color?.should eq 'green'
-    end
-
-    it "has genric readers" do
-      @a.preferred_color = 'red'
-      @a.prefers?(:color).should eq 'red'
-      @a.preferred(:color).should eq 'red'
     end
 
     it "parent and child instances have their own prefs" do
@@ -117,23 +107,12 @@ describe Spree::Preferences::Preferable do
       @b.preferences[:color].should eq 'green' #default from A
     end
 
-    context "database fallback" do
-      before do
-        @a.instance_variable_set("@pending_preferences", {})
-      end
-
-      it "retrieves a preference from the database before falling back to default" do
-        preference = double(:value => "chatreuse", :key => 'a/color/123')
-        Spree::Preference.should_receive(:find_by_key).and_return(preference)
-        @a.preferred_color.should == 'chatreuse'
-      end
-
-      it "defaults if no database key exists" do
-        Spree::Preference.should_receive(:find_by_key).and_return(nil)
-        @a.preferred_color.should == 'green'
-      end
+    it "builds a hash of preference defaults" do
+      @b.default_preferences.should eq({
+        flavor: nil,
+        color: 'green'
+      })
     end
-
 
     context "converts integer preferences to integer values" do
       before do
@@ -176,28 +155,101 @@ describe Spree::Preferences::Preferable do
 
       it "with strings" do
         @a.set_preference(:is_boolean, '0')
-        @a.preferences[:is_boolean].should be_false
+        @a.preferences[:is_boolean].should be false
         @a.set_preference(:is_boolean, 'f')
-        @a.preferences[:is_boolean].should be_false
+        @a.preferences[:is_boolean].should be false
         @a.set_preference(:is_boolean, 't')
-        @a.preferences[:is_boolean].should be_true
+        @a.preferences[:is_boolean].should be true
       end
 
       it "with integers" do
         @a.set_preference(:is_boolean, 0)
-        @a.preferences[:is_boolean].should be_false
+        @a.preferences[:is_boolean].should be false
         @a.set_preference(:is_boolean, 1)
-        @a.preferences[:is_boolean].should be_true
+        @a.preferences[:is_boolean].should be true
       end
 
       it "with an empty string" do
         @a.set_preference(:is_boolean, '')
-        @a.preferences[:is_boolean].should be_false
+        @a.preferences[:is_boolean].should be false
       end
 
       it "with an empty hash" do
         @a.set_preference(:is_boolean, [])
-        @a.preferences[:is_boolean].should be_false
+        @a.preferences[:is_boolean].should be false
+      end
+    end
+
+    context "converts array preferences to array values" do
+      before do
+        A.preference :is_array, :array, default: []
+      end
+
+      it "with arrays" do
+        @a.set_preference(:is_array, [])
+        @a.preferences[:is_array].should be_is_a(Array)
+      end
+
+      it "with string" do
+        @a.set_preference(:is_array, "string")
+        @a.preferences[:is_array].should be_is_a(Array)
+      end
+
+      it "with hash" do
+        @a.set_preference(:is_array, {})
+        @a.preferences[:is_array].should be_is_a(Array)
+      end
+    end
+
+    context "converts hash preferences to hash values" do
+      before do
+        A.preference :is_hash, :hash, default: {}
+      end
+
+      it "with hash" do
+        @a.set_preference(:is_hash, {})
+        @a.preferences[:is_hash].should be_is_a(Hash)
+      end
+
+      it "with hash and keys are integers" do
+        @a.set_preference(:is_hash, {1 => 2, 3 => 4})
+        expect(@a.preferences[:is_hash]).to eql({1 => 2, 3 => 4})
+      end
+
+      it "with ancestor of a hash" do
+        ancestor_of_hash = ActionController::Parameters.new({ key: :value })
+        @a.set_preference(:is_hash, ancestor_of_hash)
+        expect(@a.preferences[:is_hash]).to eql({"key" => :value})
+      end
+
+      it "with string" do
+        @a.set_preference(:is_hash, "{\"0\"=>{\"answer\"=>\"1\", \"value\"=>\"No\"}}")
+        @a.preferences[:is_hash].should be_is_a(Hash)
+      end
+
+      it "with boolean" do
+        @a.set_preference(:is_hash, false)
+        @a.preferences[:is_hash].should be_is_a(Hash)
+        @a.set_preference(:is_hash, true)
+        @a.preferences[:is_hash].should be_is_a(Hash)
+      end
+
+      it "with simple array" do
+        @a.set_preference(:is_hash, ["key", "value", "another key", "another value"])
+        @a.preferences[:is_hash].should be_is_a(Hash)
+        @a.preferences[:is_hash]["key"].should == "value"
+        @a.preferences[:is_hash]["another key"].should == "another value"
+      end
+
+      it "with a nested array" do
+        @a.set_preference(:is_hash, [["key", "value"], ["another key", "another value"]])
+        @a.preferences[:is_hash].should be_is_a(Hash)
+        @a.preferences[:is_hash]["key"].should == "value"
+        @a.preferences[:is_hash]["another key"].should == "another value"
+      end
+
+      it "with single array" do
+        expect { @a.set_preference(:is_hash, ["key"]) }.to raise_error(ArgumentError)
       end
     end
 
@@ -228,6 +280,7 @@ describe Spree::Preferences::Preferable do
         def self.up
           create_table :pref_tests do |t|
             t.string :col
+            t.text :preferences
           end
         end
 
@@ -240,7 +293,7 @@ describe Spree::Preferences::Preferable do
       ActiveRecord::Migration.verbose = false
       CreatePrefTest.migrate(:up)
 
-      class PrefTest < ActiveRecord::Base
+      class PrefTest < Spree::Base
         preference :pref_test_pref, :string, :default => 'abc'
         preference :pref_test_any, :any, :default => []
       end
@@ -273,27 +326,6 @@ describe Spree::Preferences::Preferable do
       end
     end
 
-    describe "requires a valid id" do
-      it "for cache_key" do
-        pref_test = PrefTest.new
-        pref_test.preference_cache_key(:pref_test_pref).should be_nil
-
-        pref_test.save
-        pref_test.preference_cache_key(:pref_test_pref).should_not be_nil
-      end
-
-      it "but returns default values" do
-        pref_test = PrefTest.new
-        pref_test.get_preference(:pref_test_pref).should == 'abc'
-      end
-
-      it "adds prefs in a pending hash until after_create" do
-        pref_test = PrefTest.new
-        pref_test.should_receive(:add_pending_preference).with(:pref_test_pref, 'XXX')
-        pref_test.set_preference(:pref_test_pref, 'XXX')
-      end
-    end
-
     it "clear preferences" do
       @pt.set_preference(:pref_test_pref, 'xyz')
       @pt.preferred_pref_test_pref.should == 'xyz'
@@ -309,23 +341,8 @@ describe Spree::Preferences::Preferable do
       @pt1 = PrefTest.new(:col => 'aaaa')
       @pt1.id = @pt.id
       @pt1.save!
-      @pt1.get_preference(:pref_test_pref).should_not == 'lmn'
       @pt1.get_preference(:pref_test_pref).should == 'abc'
     end
   end
 
-  it "builds cache keys" do
-    @a.preference_cache_key(:color).should match /a\/color\/\d+/
-  end
-
-  it "can add and remove preferences" do
-    A.preference :test_temp, :boolean, :default => true
-    @a.preferred_test_temp.should be_true
-    A.remove_preference :test_temp
-    @a.has_preference?(:test_temp).should be_false
-    @a.respond_to?(:preferred_test_temp).should be_false
-  end
-
 end
-
-

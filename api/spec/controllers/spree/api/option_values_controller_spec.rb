@@ -24,7 +24,7 @@ module Spree
         create(:option_value, :option_type => create(:option_type))
       end
 
-      it "can retreive a list of all option values" do
+      it "can retrieve a list of all option values" do
         api_get :index
         json_response.count.should == 2
         json_response.first.should have_attributes(attributes)
@@ -47,7 +47,7 @@ module Spree
         json_response.first.should have_attributes(attributes)
       end
 
-      it "can retreive a list of option types" do
+      it "can retrieve a list of option types" do
         option_value_1 = create(:option_value, :option_type => option_type)
         option_value_2 = create(:option_value, :option_type => option_type)
         api_get :index, :ids => [option_value.id, option_value_1.id]
@@ -109,6 +109,13 @@ module Spree
 
           option_value.reload
           option_value.name.should == "Option Value"
+        end
+
+        it "permits the correct attributes" do
+          controller.should_receive(:permitted_option_value_attributes)
+          api_put :update, :id => option_value.id, :option_value => {
+                            :name => ""
+                           }
         end
 
         it "cannot update an option value with invalid attributes" do

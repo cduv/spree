@@ -6,12 +6,12 @@ module Spree
     render_views
 
     let!(:product) { create(:product) }
-    let(:attributes) { [:id, :name, :description, :price, :available_on, :permalink, :meta_description, :meta_keywords, :taxon_ids] }
+    let(:attributes) { [:id, :name, :description, :price, :available_on, :slug, :meta_description, :meta_keywords, :taxon_ids] }
 
     context "without authentication" do
       before { Spree::Api::Config[:requires_authentication] = false }
 
-      it "retreives a list of products" do
+      it "retrieves a list of products" do
         api_get :index
         json_response["products"].first.should have_attributes(attributes)
         json_response["count"].should == 1

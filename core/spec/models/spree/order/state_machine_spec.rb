@@ -20,7 +20,10 @@ describe Spree::Order do
       end
 
       context "when payment processing succeeds" do
-        before { order.stub :process_payments! => true }
+        before do
+          order.payments << FactoryGirl.create(:payment, state: 'checkout', order: order)
+          order.stub process_payments: true
+        end
 
         it "should finalize order when transitioning to complete state" do
           order.should_receive(:finalize!)
@@ -35,7 +38,6 @@ describe Spree::Order do
              order.state.should == "confirm"
            end
         end
-
       end
 
       context "when payment processing fails" do
@@ -46,31 +48,30 @@ describe Spree::Order do
          order.state.should == "confirm"
         end
       end
-
-    end
-
-    context "when current state is address" do
-      before do
-        order.stub(:has_available_payment)
-        order.stub(:ensure_available_shipping_rates)
-        order.state = "address"
-      end
-
-      it "adjusts tax rates when transitioning to delivery" do
-        # Once because the record is being saved
-        # Twice because it is transitioning to the delivery state
-        Spree::TaxRate.should_receive(:adjust).twice
-        order.next!
-      end
     end
 
     context "when current state is delivery" do
       before do
+        order.stub :payment_required? => true
+        order.stub :apply_free_shipping_promotions
         order.state = "delivery"
-        order.stub :total => 10.0
+      end
+
+      it "adjusts tax rates when transitioning to delivery" do
+        # Once for the line items
+        Spree::TaxRate.should_receive(:adjust).once
+        order.stub :set_shipments_cost
+        order.next!
+      end
+
+      it "adjusts tax rates twice if there are any shipments" do
+        # Once for the line items, once for the shipments
+        order.shipments.build
+        Spree::TaxRate.should_receive(:adjust).twice
+        order.stub :set_shipments_cost
+        order.next!
       end
     end
-
   end
 
   context "#can_cancel?" do
@@ -79,7 +80,7 @@ describe Spree::Order do
       it "should be true if shipment_state is #{shipment_state}" do
         order.stub :completed? => true
         order.shipment_state = shipment_state
-        order.can_cancel?.should be_true
+        order.can_cancel?.should be true
       end
     end
 
@@ -87,7 +88,7 @@ describe Spree::Order do
       it "should be false if shipment_state is #{shipment_state}" do
         order.stub :completed? => true
         order.shipment_state = shipment_state
-        order.can_cancel?.should be_false
+        order.can_cancel?.should be false
       end
     end
 
@@ -99,20 +100,34 @@ describe Spree::Order do
                               stub_model(Spree::InventoryUnit, :variant => variant) ]}
     let!(:shipment) do
       shipment = stub_model(Spree::Shipment)
-      shipment.stub :inventory_units => inventory_units
+      shipment.stub :inventory_units => inventory_units, :order => order
       order.stub :shipments => [shipment]
       shipment
     end
 
     before do
-      order.stub :line_items => [stub_model(Spree::LineItem, :variant => variant, :quantity => 2)]
+
+      2.times do
+        create(:line_item, :order => order, price: 10)
+      end
+
       order.line_items.stub :find_by_variant_id => order.line_items.first
 
       order.stub :completed? => true
       order.stub :allow_cancel? => true
+
+      shipments = [shipment]
+      order.stub :shipments => shipments
+      shipments.stub :states => []
+      shipments.stub :ready => []
+      shipments.stub :pending => []
+      shipments.stub :shipped => []
+
+      Spree::OrderUpdater.any_instance.stub(:update_adjustment_total) { 10 }
     end
 
     it "should send a cancel email" do
+
       # Stub methods that cause side-effects in this test
       shipment.stub(:cancel!)
       order.stub :has_available_shipment
@@ -140,6 +155,9 @@ describe Spree::Order do
     end
 
     context "resets payment state" do
+
+      let(:payment) { create(:payment) }
+
       before do
         # TODO: This is ugly :(
         # Stubs methods that cause unwanted side effects in this test
@@ -148,23 +166,40 @@ describe Spree::Order do
         order.stub :has_available_shipment
         order.stub :restock_items!
         shipment.stub(:cancel!)
+        payment.stub(:cancel!)
+        order.stub_chain(:payments, :valid, :size).and_return(1)
+        order.stub_chain(:payments, :completed).and_return([payment])
+        order.stub_chain(:payments, :last).and_return(payment)
       end
 
       context "without shipped items" do
-        it "should set payment state to 'credit owed'" do
-          order.cancel!
-          order.payment_state.should == 'credit_owed'
+        it "should set payment state to 'void'" do
+          expect { order.cancel! }.to change{ order.reload.payment_state }.to("void")
         end
       end
 
       context "with shipped items" do
         before do
           order.stub :shipment_state => 'partial'
+          order.stub :outstanding_balance? => false
+          order.stub :payment_state => "paid"
         end
 
         it "should not alter the payment state" do
           order.cancel!
-          order.payment_state.should be_nil
+          expect(order.payment_state).to eql "paid"
+        end
+      end
+
+      context "with payments" do
+        let(:payment) { create(:payment) }
+
+        it "should automatically refund all payments" do
+          order.stub_chain(:payments, :valid, :size).and_return(1)
+          order.stub_chain(:payments, :completed).and_return([payment])
+          order.stub_chain(:payments, :last).and_return(payment)
+          payment.should_receive(:cancel!)
+          order.cancel!
         end
       end
     end

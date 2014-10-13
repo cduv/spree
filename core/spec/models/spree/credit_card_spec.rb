@@ -1,8 +1,12 @@
 require 'spec_helper'
 
 describe Spree::CreditCard do
-
-  let(:valid_credit_card_attributes) { { number: '4111111111111111', verification_value: '123', month: 12, year: 2014 } }
+  let(:valid_credit_card_attributes) do
+    { :number => '4111111111111111',
+      :verification_value => '123',
+      :expiry => "12 / 14",
+      :name => "Spree Commerce" }
+  end
 
   def self.payment_states
     Spree::Payment.state_machine.states.keys
@@ -38,36 +42,31 @@ describe Spree::CreditCard do
   context "#can_capture?" do
     it "should be true if payment is pending" do
       payment = mock_model(Spree::Payment, pending?: true, created_at: Time.now)
-      credit_card.can_capture?(payment).should be_true
+      credit_card.can_capture?(payment).should be true
     end
 
     it "should be true if payment is checkout" do
       payment = mock_model(Spree::Payment, pending?: false, checkout?: true, created_at: Time.now)
-      credit_card.can_capture?(payment).should be_true
+      credit_card.can_capture?(payment).should be true
     end
   end
 
   context "#can_void?" do
     it "should be true if payment is not void" do
-      payment = mock_model(Spree::Payment, void?: false)
-      credit_card.can_void?(payment).should be_true
+      payment = mock_model(Spree::Payment, failed?: false, void?: false)
+      credit_card.can_void?(payment).should be true
     end
   end
 
   context "#can_credit?" do
     it "should be false if payment is not completed" do
       payment = mock_model(Spree::Payment, completed?: false)
-      credit_card.can_credit?(payment).should be_false
-    end
-
-    it "should be false when order payment_state is not 'credit_owed'" do
-      payment = mock_model(Spree::Payment, completed?: true, order: mock_model(Spree::Order, payment_state: 'paid'))
-      credit_card.can_credit?(payment).should be_false
+      credit_card.can_credit?(payment).should be false
     end
 
     it "should be false when credit_allowed is zero" do
       payment = mock_model(Spree::Payment, completed?: true, credit_allowed: 0, order: mock_model(Spree::Order, payment_state: 'credit_owed'))
-      credit_card.can_credit?(payment).should be_false
+      credit_card.can_credit?(payment).should be false
     end
   end
 
@@ -84,11 +83,45 @@ describe Spree::CreditCard do
       credit_card.errors[:verification_value].should == ["can't be blank"]
     end
 
+    it "validates name presence" do
+      credit_card.valid?
+      expect(credit_card).to have(1).error_on(:name)
+    end
+
+    # Regression spec for #4971
+    it "should not bomb out when given an invalid expiry" do
+      credit_card.month = 13
+      credit_card.year = Time.now.year + 1
+      credit_card.should_not be_valid
+      credit_card.errors[:base].should == ["Card expiration is invalid"]
+    end
+
     it "should validate expiration is not in the past" do
       credit_card.month = 1.month.ago.month
       credit_card.year = 1.month.ago.year
       credit_card.should_not be_valid
       credit_card.errors[:base].should == ["Card has expired"]
+    end
+
+    it "should not be expired expiring on the current month" do
+      credit_card.attributes = valid_credit_card_attributes
+      credit_card.month = Time.zone.now.month
+      credit_card.year = Time.zone.now.year
+      credit_card.should be_valid
+    end
+
+    it "should handle TZ correctly" do
+      # The card is valid according to the system clock's local time
+      # (Time.now).
+      # However it has expired in rails's configured time zone (Time.current),
+      # which is the value we should be respecting.
+      time = Time.new(2014, 04, 30, 23, 0, 0, "-07:00")
+      Timecop.freeze(time) do
+        credit_card.month = 1.month.ago.month
+        credit_card.year = 1.month.ago.year
+        credit_card.should_not be_valid
+        credit_card.errors[:base].should == ["Card has expired"]
+      end
     end
 
     it "does not run expiration in the past validation if month is not set" do
@@ -104,18 +137,36 @@ describe Spree::CreditCard do
       credit_card.should_not be_valid
       credit_card.errors[:base].should be_blank
     end
-    
+
     it "does not run expiration in the past validation if year and month are empty" do
       credit_card.year = ""
       credit_card.month = ""
       credit_card.should_not be_valid
       credit_card.errors[:card].should be_blank
-    end 
+    end
 
     it "should only validate on create" do
       credit_card.attributes = valid_credit_card_attributes
       credit_card.save
       credit_card.should be_valid
+    end
+
+    context "encrypted data is present" do
+      it "does not validate presence of number or cvv" do
+        credit_card.encrypted_data = "$fdgsfgdgfgfdg&gfdgfdgsf-"
+        credit_card.valid?
+        expect(credit_card.errors[:number]).to be_empty
+        expect(credit_card.errors[:verification_value]).to be_empty
+      end
+    end
+
+    context "imported is true" do
+      it "does not validate presence of number or cvv" do
+        credit_card.imported = true
+        credit_card.valid?
+        expect(credit_card.errors[:number]).to be_empty
+        expect(credit_card.errors[:verification_value]).to be_empty
+      end
     end
   end
 
@@ -136,49 +187,116 @@ describe Spree::CreditCard do
     end
   end
 
-  context "#spree_cc_type" do
-    before { credit_card.attributes = valid_credit_card_attributes }
+  context "#number=" do
+    it "should strip non-numeric characters from card input" do
+      credit_card.number = "6011000990139424"
+      credit_card.number.should == "6011000990139424"
 
-    context "in development mode" do
-      before do
-        stub_rails_env("production")
-      end
-
-      it "should return visa" do
-        credit_card.save
-        credit_card.spree_cc_type.should == 'visa'
-      end
+      credit_card.number = "  6011-0009-9013-9424  "
+      credit_card.number.should == "6011000990139424"
     end
 
-    context "in production mode" do
-      before { stub_rails_env("production") }
-
-      it "should return the actual cc_type for a valid number" do
-        credit_card.number = '378282246310005'
-        credit_card.save
-        credit_card.spree_cc_type.should == 'american_express'
-      end
+    it "should not raise an exception on non-string input" do
+      credit_card.number = Hash.new
+      credit_card.number.should be_nil
     end
   end
 
-  context "#set_card_type" do
-    before :each do
-      stub_rails_env("production")
-      credit_card.attributes = valid_credit_card_attributes
+  # Regression test for #3847 & #3896
+  context "#expiry=" do
+    it "can set with a 2-digit month and year" do
+      credit_card.expiry = '04 / 14'
+      expect(credit_card.month).to eq(4)
+      expect(credit_card.year).to eq(2014)
     end
 
-    it "stores the credit card type after validation" do
-      credit_card.number = '6011000990139424'
-      credit_card.save
-      credit_card.spree_cc_type.should == 'discover'
+    it "can set with a 2-digit month and 4-digit year" do
+      credit_card.expiry = '04 / 2014'
+      expect(credit_card.month).to eq(4)
+      expect(credit_card.year).to eq(2014)
     end
 
-    it "does not overwrite the credit card type when loaded and saved" do
-      credit_card.number = '5105105105105100'
-      credit_card.save
-      credit_card.number = 'XXXXXXXXXXXX5100'
-      credit_card.save
-      credit_card.spree_cc_type.should == 'master'
+    it "can set with a 2-digit month and 4-digit year without whitespace" do
+      credit_card.expiry = '04/14'
+      expect(credit_card.month).to eq(4)
+      expect(credit_card.year).to eq(2014)
+    end
+
+    it "can set with a 2-digit month and 4-digit year without whitespace" do
+      credit_card.expiry = '04/2014'
+      expect(credit_card.month).to eq(4)
+      expect(credit_card.year).to eq(2014)
+    end
+
+    it "can set with a 2-digit month and 4-digit year without whitespace and slash" do
+      credit_card.expiry = '042014'
+      expect(credit_card.month).to eq(4)
+      expect(credit_card.year).to eq(2014)
+    end
+
+    it "can set with a 2-digit month and 2-digit year without whitespace and slash" do
+      credit_card.expiry = '0414'
+      expect(credit_card.month).to eq(4)
+      expect(credit_card.year).to eq(2014)
+    end
+
+    it "does not blow up when passed an empty string" do
+      lambda { credit_card.expiry = '' }.should_not raise_error
+    end
+
+    # Regression test for #4725
+    it "does not blow up when passed one number" do
+      lambda { credit_card.expiry = '12' }.should_not raise_error
+    end
+
+  end
+
+  context "#cc_type=" do
+    it "converts between the different types" do
+      credit_card.cc_type = 'mastercard'
+      credit_card.cc_type.should == 'master'
+
+      credit_card.cc_type = 'maestro'
+      credit_card.cc_type.should == 'master'
+
+      credit_card.cc_type = 'amex'
+      credit_card.cc_type.should == 'american_express'
+
+      credit_card.cc_type = 'dinersclub'
+      credit_card.cc_type.should == 'diners_club'
+
+      credit_card.cc_type = 'some_outlandish_cc_type'
+      credit_card.cc_type.should == 'some_outlandish_cc_type'
+    end
+
+    it "assigns the type based on card number in the event of js failure" do
+      credit_card.number = '4242424242424242'
+      credit_card.cc_type = ''
+      credit_card.cc_type.should == 'visa'
+
+      credit_card.number = '5555555555554444'
+      credit_card.cc_type = ''
+      credit_card.cc_type.should == 'master'
+
+      credit_card.number = '378282246310005'
+      credit_card.cc_type = ''
+      credit_card.cc_type.should == 'american_express'
+
+      credit_card.number = '30569309025904'
+      credit_card.cc_type = ''
+      credit_card.cc_type.should == 'diners_club'
+
+      credit_card.number = '3530111333300000'
+      credit_card.cc_type = ''
+      credit_card.cc_type.should == 'jcb'
+
+      credit_card.number = ''
+      credit_card.cc_type = ''
+      credit_card.cc_type.should == ''
+
+      credit_card.number = nil
+      credit_card.cc_type = ''
+      credit_card.cc_type.should == ''
     end
   end
 
@@ -187,14 +305,33 @@ describe Spree::CreditCard do
       expect { credit_card.payments.to_a }.not_to raise_error
     end
   end
-  
+
+  context "#first_name" do
+    before do
+      credit_card.name = "Ludwig van Beethoven"
+    end
+
+    it "extracts the first name" do
+      expect(credit_card.first_name).to eq "Ludwig"
+    end
+  end
+
+  context "#last_name" do
+    before do
+      credit_card.name = "Ludwig van Beethoven"
+    end
+
+    it "extracts the last name" do
+      expect(credit_card.last_name).to eq "van Beethoven"
+    end
+  end
+
   context "#to_active_merchant" do
     before do
       credit_card.number = "4111111111111111"
       credit_card.year = Time.now.year
       credit_card.month = Time.now.month
-      credit_card.first_name = "Bob"
-      credit_card.last_name = "Boblaw"
+      credit_card.name = "Ludwig van Beethoven"
       credit_card.verification_value = 123
     end
 
@@ -203,9 +340,41 @@ describe Spree::CreditCard do
       am_card.number.should == "4111111111111111"
       am_card.year.should == Time.now.year
       am_card.month.should == Time.now.month
-      am_card.first_name.should == "Bob"
-      am_card.last_name = "Boblaw"
+      am_card.first_name.should == "Ludwig"
+      am_card.last_name.should == "van Beethoven"
       am_card.verification_value.should == 123
     end
+  end
+
+  it 'ensures only one credit card per user is default at a time' do
+    user = FactoryGirl.create(:user)
+    first = FactoryGirl.create(:credit_card, user: user, default: true)
+    second = FactoryGirl.create(:credit_card, user: user, default: true)
+
+    first.reload.default.should eq false
+    second.reload.default.should eq true
+
+    first.default = true
+    first.save!
+
+    first.reload.default.should eq true
+    second.reload.default.should eq false
+  end
+
+  it 'allows default credit cards for different users' do
+    first = FactoryGirl.create(:credit_card, user: FactoryGirl.create(:user), default: true)
+    second = FactoryGirl.create(:credit_card, user: FactoryGirl.create(:user), default: true)
+
+    first.reload.default.should eq true
+    second.reload.default.should eq true
+  end
+
+  it 'allows this card to save even if the previously default card has expired' do
+    user = FactoryGirl.create(:user)
+    first = FactoryGirl.create(:credit_card, user: user, default: true)
+    second = FactoryGirl.create(:credit_card, user: user, default: false)
+    first.update_columns(year: DateTime.now.year, month: 1.month.ago.month)
+
+    expect { second.update_attributes!(default: true) }.not_to raise_error
   end
 end

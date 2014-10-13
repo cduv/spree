@@ -6,13 +6,15 @@ require 'spec_helper'
 describe Spree::ProductsController do
 
   before do
-    I18n.stub(:available_locales => [:en, :de])
+    I18n.enforce_available_locales = false
+    expect(I18n).to receive(:available_locales).and_return([:en, :de])
     Spree::Frontend::Config[:locale] = :de
   end
 
   after do
     Spree::Frontend::Config[:locale] = :en
     I18n.locale = :en
+    I18n.enforce_available_locales = true
   end
 
   # Regression test for #1184

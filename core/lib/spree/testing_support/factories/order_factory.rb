@@ -5,9 +5,13 @@ FactoryGirl.define do
     completed_at nil
     email { user.email }
 
+    ignore do
+      line_items_price BigDecimal.new(10)
+    end
+
     factory :order_with_totals do
-      after(:create) do |order|
-        create(:line_item, order: order)
+      after(:create) do |order, evaluator|
+        create(:line_item, order: order, price: evaluator.line_items_price)
         order.line_items.reload # to ensure order.line_items is accessible after
       end
     end
@@ -17,42 +21,55 @@ FactoryGirl.define do
       ship_address
 
       ignore do
-        line_items_count 5
+        line_items_count 1
+        shipment_cost 100
       end
 
       after(:create) do |order, evaluator|
-        create(:shipment, order: order)
+        create_list(:line_item, evaluator.line_items_count, order: order, price: evaluator.line_items_price)
+        order.line_items.reload
+
+        create(:shipment, order: order, cost: evaluator.shipment_cost)
         order.shipments.reload
 
-        create_list(:line_item, evaluator.line_items_count, order: order)
-        order.line_items.reload
         order.update!
       end
 
       factory :completed_order_with_totals do
         state 'complete'
-        completed_at { Time.now }
+
+        after(:create) do |order|
+          order.refresh_shipment_rates
+          order.update_column(:completed_at, Time.now)
+        end
+
+        factory :completed_order_with_pending_payment do
+          after(:create) do |order|
+            create(:payment, amount: order.total, order: order)
+          end
+        end
 
         factory :order_ready_to_ship do
           payment_state 'paid'
           shipment_state 'ready'
+
           after(:create) do |order|
             create(:payment, amount: order.total, order: order, state: 'completed')
             order.shipments.each do |shipment|
-              shipment.inventory_units.each { |u| u.update_attribute('state', 'on_hand') }
-              shipment.update_attribute('state', 'ready')
+              shipment.inventory_units.update_all state: 'on_hand'
+              shipment.update_column('state', 'ready')
             end
             order.reload
           end
-        end
 
-        factory :shipped_order do
-          after(:create) do |order|
-            order.shipments.each do |shipment|
-              shipment.inventory_units.each { |u| u.update_attribute('state', 'shipped') }
-              shipment.update_attribute('state', 'shipped')
+          factory :shipped_order do
+            after(:create) do |order|
+              order.shipments.each do |shipment|
+                shipment.inventory_units.update_all state: 'shipped'
+                shipment.update_column('state', 'shipped')
+              end
+              order.reload
             end
-            order.reload
           end
         end
       end

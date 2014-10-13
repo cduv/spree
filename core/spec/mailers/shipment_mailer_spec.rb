@@ -40,6 +40,7 @@ describe Spree::ShipmentMailer do
     context "shipped_email" do
       context "pt-BR locale" do
         before do
+          I18n.enforce_available_locales = false
           pt_br_shipped_email = { :spree => { :shipment_mailer => { :shipped_email => { :dear_customer => 'Caro Cliente,' } } } }
           I18n.backend.store_translations :'pt-BR', pt_br_shipped_email
           I18n.locale = :'pt-BR'
@@ -47,11 +48,12 @@ describe Spree::ShipmentMailer do
 
         after do
           I18n.locale = I18n.default_locale
+          I18n.enforce_available_locales = true
         end
 
         specify do
           shipped_email = Spree::ShipmentMailer.shipped_email(shipment)
-          shipped_email.body.should include("Caro Cliente,")
+          expect(shipped_email).to have_body_text("Caro Cliente,")
         end
       end
     end

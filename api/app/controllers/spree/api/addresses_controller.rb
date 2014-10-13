@@ -1,16 +1,16 @@
 module Spree
   module Api
     class AddressesController < Spree::Api::BaseController
-      before_filter :find_order
+      before_action :find_order
 
       def show
-        authorize! :read, @order, params[:order_token]
+        authorize! :read, @order, order_token
         find_address
         respond_with(@address)
       end
 
       def update
-        authorize! :update, @order, params[:order_token]
+        authorize! :update, @order, order_token
         find_address
 
         if @address.update_attributes(address_params)
@@ -26,7 +26,7 @@ module Spree
         end
 
         def find_order
-          @order = Spree::Order.find_by!(number: params[:order_id])
+          @order = Spree::Order.find_by!(number: order_id)
         end
 
         def find_address

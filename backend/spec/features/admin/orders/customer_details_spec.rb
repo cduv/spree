@@ -3,8 +3,6 @@ require 'spec_helper'
 describe "Customer Details" do
   stub_authorization!
 
-  let(:shipping_method) { create(:shipping_method, :display_on => "front_end") }
-  let(:order) { create(:completed_order_with_totals) }
   let(:country) { create(:country, :name => "Kangaland") }
   let(:state) { create(:state, :name => "Alabama", :country => country) }
   let!(:shipping_method) { create(:shipping_method, :display_on => "front_end") }
@@ -74,6 +72,32 @@ describe "Customer Details" do
       within("#order_tab_summary") do
         find(".state").text.should == "COMPLETE"
       end
+    end
+
+    it "updates order email for an existing order with a user" do
+      order.update_columns(ship_address_id: ship_address.id, bill_address_id: bill_address.id, state: "confirm", completed_at: nil)
+      previous_user = order.user
+      click_link "Customer Details"
+      fill_in "order_email", with: "newemail@example.com"
+      expect { click_button "Update" }.to change { order.reload.email }.to "newemail@example.com"
+      expect(order.user_id).to eq previous_user.id
+      expect(order.user.email).to eq previous_user.email
+    end
+  end
+
+  context "country associated was removed" do
+    let(:brazil) { create(:country, iso: "BRA", name: "Brazil") }
+
+    before do
+      order.bill_address.country.destroy
+      configure_spree_preferences do |config|
+        config.default_country_id = brazil.id
+      end
+    end
+
+    it "sets default country when displaying form" do
+      click_link "Customer Details"
+      expect(find_field("order_bill_address_attributes_country_id").value.to_i).to eq brazil.id
     end
   end
 

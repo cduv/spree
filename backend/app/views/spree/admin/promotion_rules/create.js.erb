@@ -5,3 +5,6 @@ $('.product_picker').productAutocomplete();
 $('.user_picker').userAutocomplete();
 
 $('#promotion_rule_type').html('<%= escape_javascript options_for_promotion_rule_types(@promotion) %>');
+$('#promotion_rule_type').select2();
+
+set_taxon_select()

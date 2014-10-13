@@ -7,6 +7,7 @@ if ENV["COVERAGE"]
     add_group 'Mailers', 'app/mailers'
     add_group 'Models', 'app/models'
     add_group 'Views', 'app/views'
+    add_group 'Jobs', 'app/jobs'
     add_group 'Libraries', 'lib'
   end
 end
@@ -14,13 +15,20 @@ end
 # This file is copied to ~/spec when you run 'ruby script/generate rspec'
 # from the project root directory.
 ENV["RAILS_ENV"] ||= 'test'
-require File.expand_path("../dummy/config/environment", __FILE__)
+
+begin
+  require File.expand_path("../dummy/config/environment", __FILE__)
+rescue LoadError
+  puts "Could not load dummy application. Please ensure you have run `bundle exec rake test_app`"
+end
+
 require 'rspec/rails'
 require 'database_cleaner'
 require 'ffaker'
 
 require "support/big_decimal"
 require "support/test_gateway"
+require "support/rake"
 
 if ENV["CHECK_TRANSLATIONS"]
   require "spree/testing_support/i18n"
@@ -31,6 +39,7 @@ require 'spree/testing_support/preferences'
 
 RSpec.configure do |config|
   config.color = true
+  config.infer_spec_type_from_file_location!
   config.mock_with :rspec
 
   config.fixture_path = File.join(File.expand_path(File.dirname(__FILE__)), "fixtures")
@@ -40,7 +49,8 @@ RSpec.configure do |config|
   # instead of true.
   config.use_transactional_fixtures = true
 
-  config.before(:each) do
+  config.before :each do
+    Rails.cache.clear
     reset_spree_preferences
   end
 

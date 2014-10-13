@@ -6,13 +6,8 @@
   <nav class="menu">
     <ul class="sidebar" data-hook="admin_configurations_sidebar_menu">
       <%= configurations_sidebar_menu_item Spree.t(:general_settings), edit_admin_general_settings_path %>
-      <% if Spree::Config[:override_actionmailer_config] %>
-        <%= configurations_sidebar_menu_item Spree.t(:mail_method_settings), edit_admin_mail_method_path %>
-      <% end %>
-      <%= configurations_sidebar_menu_item Spree.t(:image_settings), edit_admin_image_settings_path %>
       <%= configurations_sidebar_menu_item Spree.t(:tax_categories), admin_tax_categories_path %>
       <%= configurations_sidebar_menu_item Spree.t(:tax_rates), admin_tax_rates_path %>
-      <%= configurations_sidebar_menu_item Spree.t(:tax_settings), edit_admin_tax_settings_path %>
       <%= configurations_sidebar_menu_item Spree.t(:zones), admin_zones_path %>
       <%= configurations_sidebar_menu_item Spree.t(:countries), admin_countries_path %>
       <% if Spree::Config[:default_country_id] %>
@@ -25,6 +20,9 @@
       <%= configurations_sidebar_menu_item Spree.t(:stock_transfers), admin_stock_transfers_path %>
       <%= configurations_sidebar_menu_item Spree.t(:stock_locations), spree.admin_stock_locations_path %>
       <%= configurations_sidebar_menu_item Spree.t(:analytics_trackers), admin_trackers_path %>
+      <%= configurations_sidebar_menu_item Spree.t(:refund_reasons), admin_refund_reasons_path %>
+      <%= configurations_sidebar_menu_item Spree.t(:reimbursement_types), admin_reimbursement_types_path %>
+      <%= configurations_sidebar_menu_item Spree.t(:return_authorization_reasons), admin_return_authorization_reasons_path %>
     </ul>
   </nav>
 <% end %>

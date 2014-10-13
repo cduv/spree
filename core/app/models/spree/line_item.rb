@@ -1,12 +1,14 @@
 module Spree
-  class LineItem < ActiveRecord::Base
-    before_validation :adjust_quantity
-    belongs_to :order, class_name: "Spree::Order"
-    belongs_to :variant, class_name: "Spree::Variant"
+  class LineItem < Spree::Base
+    before_validation :invalid_quantity_check
+    belongs_to :order, class_name: "Spree::Order", inverse_of: :line_items, touch: true
+    belongs_to :variant, class_name: "Spree::Variant", inverse_of: :line_items
     belongs_to :tax_category, class_name: "Spree::TaxCategory"
 
     has_one :product, through: :variant
+
     has_many :adjustments, as: :adjustable, dependent: :destroy
+    has_many :inventory_units, inverse_of: :line_item
 
     before_validation :copy_price
     before_validation :copy_tax_category
@@ -20,10 +22,15 @@ module Spree
     validates :price, numericality: true
     validates_with Stock::AvailabilityValidator
 
-    before_save :update_inventory
+    validate :ensure_proper_currency
+    before_destroy :update_inventory
 
-    after_save :update_order
-    after_destroy :update_order
+    after_save :update_inventory
+    after_save :update_adjustments
+
+    after_create :update_tax_charge
+
+    delegate :name, :description, :sku, :should_track_inventory?, to: :variant
 
     attr_accessor :target_shipment
 
@@ -37,14 +44,27 @@ module Spree
 
     def copy_tax_category
       if variant
-        self.tax_category = variant.product.tax_category
+        self.tax_category = variant.tax_category
       end
     end
 
     def amount
       price * quantity
     end
-    alias total amount
+    alias subtotal amount
+
+    def discounted_amount
+      amount + promo_total
+    end
+
+    def discounted_money
+      Spree::Money.new(discounted_amount, { currency: currency })
+    end
+
+    def final_amount
+      amount + adjustment_total
+    end
+    alias total final_amount
 
     def single_money
       Spree::Money.new(price, { currency: currency })
@@ -57,20 +77,16 @@ module Spree
     alias display_total money
     alias display_amount money
 
-    def adjust_quantity
+    def invalid_quantity_check
       self.quantity = 0 if quantity.nil? || quantity < 0
     end
 
     def sufficient_stock?
-      Stock::Quantifier.new(variant_id).can_supply? quantity
+      Stock::Quantifier.new(variant).can_supply? quantity
     end
 
     def insufficient_stock?
       !sufficient_stock?
-    end
-
-    def assign_stock_changes_to=(shipment)
-      @preferred_shipment = shipment
     end
 
     # Remove product default_scope `deleted_at: nil`
@@ -83,16 +99,49 @@ module Spree
       Spree::Variant.unscoped { super }
     end
 
-    private
-      def update_inventory
-        Spree::OrderInventory.new(self.order).verify(self, target_shipment)
+    def options=(options={})
+      opts = options.dup # we will be deleting from the hash, so leave the caller's copy intact
+
+      currency = opts.delete(:currency) || order.try(:currency)
+
+      if currency
+        self.currency = currency
+        self.price    = variant.price_in(currency).amount +
+                        variant.price_modifier_amount_in(currency, opts)
+      else
+        self.price    = variant.price +
+                        variant.price_modifier_amount(opts)
       end
 
-      def update_order
-        # update the order totals, etc.
-        order.create_tax_charge!
-        order.update!
+      self.assign_attributes opts
+    end
+
+    private
+      def update_inventory
+        if (changed? || target_shipment.present?) && self.order.has_checkout_step?("delivery")
+          Spree::OrderInventory.new(self.order, self).verify(target_shipment)
+        end
+      end
+
+      def update_adjustments
+        if quantity_changed?
+          update_tax_charge # Called to ensure pre_tax_amount is updated.
+          recalculate_adjustments
+        end
+      end
+
+      def recalculate_adjustments
+        Spree::ItemAdjustments.new(self).update
+      end
+
+      def update_tax_charge
+        Spree::TaxRate.adjust(order.tax_zone, [self])
+      end
+
+      def ensure_proper_currency
+        unless currency == order.currency
+          errors.add(:currency, :must_match_order_currency)
+        end
       end
   end
 end
-

@@ -1,54 +1,40 @@
 module Spree
-  class Payment < ActiveRecord::Base
+  class Payment < Spree::Base
     module Processing
       def process!
-        if payment_method && payment_method.source_required?
-          if source
-            if !processing?
-              if payment_method.supports?(source)
-                if payment_method.auto_capture?
-                  purchase!
-                else
-                  authorize!
-                end
-              else
-                invalidate!
-                raise Core::GatewayError.new(I18n.t(:payment_method_not_supported))
-              end
-            end
-          else
-            raise Core::GatewayError.new(Spree.t(:payment_processing_failed))
-          end
+        if payment_method && payment_method.auto_capture?
+          purchase!
+        else
+          authorize!
         end
       end
 
       def authorize!
-        started_processing!
-        gateway_action(source, :authorize, :pend)
+        handle_payment_preconditions { process_authorization }
       end
 
+      # Captures the entire amount of a payment.
       def purchase!
-        started_processing!
-        gateway_action(source, :purchase, :complete)
+        handle_payment_preconditions { process_purchase }
       end
 
-      def capture!
+      # Takes the amount in cents to capture.
+      # Can be used to capture partial amounts of a payment.
+      def capture!(amount=nil)
+        amount ||= money.money.cents
         return true if completed?
         started_processing!
         protect_from_connection_error do
           check_environment
+          # Standard ActiveMerchant capture usage
+          response = payment_method.capture(
+            amount,
+            response_code,
+            gateway_options
+          )
 
-          if payment_method.payment_profiles_supported?
-            # Gateways supporting payment profiles will need access to credit card object because this stores the payment profile information
-            # so supply the authorization itself as well as the credit card, rather than just the authorization code
-            response = payment_method.capture(self, source, gateway_options)
-          else
-            # Standard ActiveMerchant capture usage
-            response = payment_method.capture(money.money.cents,
-                                              response_code,
-                                              gateway_options)
-          end
-
+          money = ::Money.new(amount, currency)
+          capture_events.create!(amount: money.to_f)
           handle_response(response, :complete, :failure)
         end
       end
@@ -77,54 +63,24 @@ module Spree
         end
       end
 
-      def credit!(credit_amount=nil)
-        protect_from_connection_error do
-          check_environment
-
-          credit_amount ||= credit_allowed >= order.outstanding_balance.abs ? order.outstanding_balance.abs : credit_allowed.abs
-          credit_amount = credit_amount.to_f
-
-          if payment_method.payment_profiles_supported?
-            response = payment_method.credit((credit_amount * 100).round, source, response_code, gateway_options)
-          else
-            response = payment_method.credit((credit_amount * 100).round, response_code, gateway_options)
-          end
-
-          record_response(response)
-
-          if response.success?
-            self.class.create(
-              :order => order,
-              :source => self,
-              :payment_method => payment_method,
-              :amount => credit_amount.abs * -1,
-              :response_code => response.authorization,
-              :state => 'completed'
-            )
-          else
-            gateway_error(response)
-          end
-        end
-      end
-
-      def partial_credit(amount)
-        return if amount > credit_allowed
-        started_processing!
-        credit!(amount)
+      def cancel!
+        payment_method.cancel(response_code)
       end
 
       def gateway_options
-        options = { :email    => order.email,
-                    :customer => order.email,
-                    :ip       => order.last_ip_address,
+        order.reload
+        options = { :email       => order.email,
+                    :customer    => order.email,
+                    :customer_id => order.user_id,
+                    :ip          => order.last_ip_address,
                     # Need to pass in a unique identifier here to make some
                     # payment gateways happy.
                     #
                     # For more information, please see Spree::Payment#set_unique_identifier
-                    :order_id => gateway_order_id }
+                    :order_id    => gateway_order_id }
 
         options.merge!({ :shipping => order.ship_total * 100,
-                         :tax      => order.tax_total * 100,
+                         :tax      => order.additional_tax_total * 100,
                          :subtotal => order.item_total * 100,
                          :discount => order.promo_total * 100,
                          :currency => currency })
@@ -137,11 +93,44 @@ module Spree
 
       private
 
+      def process_authorization
+        started_processing!
+        gateway_action(source, :authorize, :pend)
+      end
+
+      def process_purchase
+        started_processing!
+        result = gateway_action(source, :purchase, :complete)
+        # This won't be called if gateway_action raises a GatewayError
+        capture_events.create!(amount: amount)
+      end
+
+      def handle_payment_preconditions(&block)
+        unless block_given?
+          raise ArgumentError.new("handle_payment_preconditions must be called with a block")
+        end
+
+        if payment_method && payment_method.source_required?
+          if source
+            if !processing?
+              if payment_method.supports?(source) || token_based?
+                yield
+              else
+                invalidate!
+                raise Core::GatewayError.new(Spree.t(:payment_method_not_supported))
+              end
+            end
+          else
+            raise Core::GatewayError.new(Spree.t(:payment_processing_failed))
+          end
+        end
+      end
+
       def gateway_action(source, action, success_state)
         protect_from_connection_error do
           check_environment
 
-          response = payment_method.send(action, (amount * 100).round,
+          response = payment_method.send(action, money.money.cents,
                                          source,
                                          gateway_options)
           handle_response(response, success_state, :failure)
@@ -169,7 +158,7 @@ module Spree
       end
 
       def record_response(response)
-        log_entries.create(:details => response.to_yaml)
+        log_entries.create!(:details => response.to_yaml)
       end
 
       def protect_from_connection_error
@@ -204,6 +193,10 @@ module Spree
       # The unique identifier to be passed in to the payment gateway
       def gateway_order_id
         "#{order.number}-#{self.identifier}"
+      end
+
+      def token_based?
+        source.gateway_customer_profile_id.present? || source.gateway_payment_profile_id.present?
       end
     end
   end

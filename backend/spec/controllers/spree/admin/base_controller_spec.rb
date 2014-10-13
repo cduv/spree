@@ -4,10 +4,22 @@
 require 'spec_helper'
 
 describe Spree::Admin::BaseController do
-
   controller(Spree::Admin::BaseController) do
     def index
+      authorize! :update, Spree::Order
       render :text => 'test'
+    end
+  end
+
+  context "unauthorized request" do
+    before do
+      Spree::Admin::BaseController.any_instance.stub(:spree_current_user).and_return(nil)
+    end
+
+    it "redirects to root" do
+      controller.stub_chain(:spree, :root_path).and_return('/root')
+      get :index
+      expect(response).to redirect_to '/root'
     end
   end
 
@@ -34,17 +46,17 @@ describe Spree::Admin::BaseController do
       end
 
       it "only checks alerts if production and preference is true" do
-        controller.send(:should_check_alerts?).should be_true
+        controller.send(:should_check_alerts?).should be true
       end
 
       it "only checks for production" do
         Rails.env.stub(:production? => false)
-        controller.send(:should_check_alerts?).should be_false
+        controller.send(:should_check_alerts?).should be false
       end
 
       it "only checks if preference is true" do
         Spree::Config[:check_for_spree_alerts] = false
-        controller.send(:should_check_alerts?).should be_false
+        controller.send(:should_check_alerts?).should be false
       end
     end
   end

@@ -5,10 +5,10 @@ module Spree
     describe FlexiRate do
       let(:variant1) { build(:variant, :price => 10) }
       let(:variant2) { build(:variant, :price => 20) }
-      let(:package) { double(Stock::Package,
-                           order: mock_model(Order),
-                           contents: [Stock::Package::ContentItem.new(variant1, 4),
-                                      Stock::Package::ContentItem.new(variant2, 6)]) }
+
+      let(:package) do
+        build(:stock_package, variants_contents: { variant1 => 4, variant2 => 6 })
+      end
 
       let(:subject) { FlexiRate.new }
 

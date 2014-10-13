@@ -6,9 +6,8 @@ module Spree
     module Rules
       class Product < PromotionRule
         has_and_belongs_to_many :products, class_name: '::Spree::Product', join_table: 'spree_products_promotion_rules', foreign_key: 'promotion_rule_id'
-        validate :only_one_promotion_per_product
 
-        MATCH_POLICIES = %w(any all)
+        MATCH_POLICIES = %w(any all none)
         preference :match_policy, :string, default: MATCH_POLICIES.first
 
         # scope/association that is used to test eligibility
@@ -16,13 +15,32 @@ module Spree
           products
         end
 
+        def applicable?(promotable)
+          promotable.is_a?(Spree::Order)
+        end
+
         def eligible?(order, options = {})
           return true if eligible_products.empty?
+
           if preferred_match_policy == 'all'
-            eligible_products.all? {|p| order.products.include?(p) }
+            unless eligible_products.all? {|p| order.products.include?(p) }
+              eligibility_errors.add(:base, eligibility_error_message(:missing_product))
+            end
+          elsif preferred_match_policy == 'any'
+            unless order.products.any? {|p| eligible_products.include?(p) }
+              eligibility_errors.add(:base, eligibility_error_message(:no_applicable_products))
+            end
           else
-            order.products.any? {|p| eligible_products.include?(p) }
+            unless order.products.none? {|p| eligible_products.include?(p) }
+              eligibility_errors.add(:base, eligibility_error_message(:has_excluded_product))
+            end
           end
+
+          eligibility_errors.empty?
+        end
+
+        def actionable?(line_item)
+          product_ids.include? line_item.variant.product_id
         end
 
         def product_ids_string
@@ -32,14 +50,6 @@ module Spree
         def product_ids_string=(s)
           self.product_ids = s.to_s.split(',').map(&:strip)
         end
-
-        private
-
-          def only_one_promotion_per_product
-            if Spree::Promotion::Rules::Product.all.map(&:products).flatten.uniq!
-              errors[:base] << "You can't create two promotions for the same product"
-            end
-          end
       end
     end
   end

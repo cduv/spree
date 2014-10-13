@@ -1,13 +1,12 @@
 module Spree
   class ShippingCalculator < Calculator
-    def compute(package_or_shipment)
-      package = package_or_shipment.respond_to?(:to_package) ?
-                  package_or_shipment.to_package : package_or_shipment
-      compute_package package
+
+    def compute_shipment(shipment)
+      raise NotImplementedError, "Please implement 'compute_shipment(shipment)' in your calculator: #{self.class.name}"
     end
 
     def compute_package(package)
-      raise(NotImplementedError, 'please use concrete calculator')
+      raise NotImplementedError, "Please implement 'compute_package(package)' in your calculator: #{self.class.name}"
     end
 
     def available?(package)
@@ -16,7 +15,7 @@ module Spree
 
     private
     def total(content_items)
-      content_items.sum { |item| item.quantity * item.variant.price }
+      content_items.map(&:amount).sum
     end
   end
 end

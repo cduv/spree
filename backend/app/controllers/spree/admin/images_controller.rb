@@ -1,7 +1,7 @@
 module Spree
   module Admin
     class ImagesController < ResourceController
-      before_filter :load_data
+      before_action :load_data
 
       create.before :set_viewable
       update.before :set_viewable
@@ -17,9 +17,9 @@ module Spree
         end
 
         def load_data
-          @product = Product.find_by_permalink(params[:product_id])
+          @product = Product.friendly.find(params[:product_id])
           @variants = @product.variants.collect do |variant|
-            [variant.options_text, variant.id]
+            [variant.sku_and_options_text, variant.id]
           end
           @variants.insert(0, [Spree.t(:all), @product.master.id])
         end
